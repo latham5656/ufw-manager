@@ -49,20 +49,18 @@ download_file() {
     fi
 }
 
-fetch_text() {
-    local url=$1
-    if command -v curl &>/dev/null; then
-        curl -fsSL "$url" 2>/dev/null
-    else
-        wget -qO- "$url" 2>/dev/null
-    fi
-}
-
 # ── Получить SHA последнего коммита через GitHub API ──────────────────────────
-# raw.githubusercontent.com кэшируется CDN и игнорирует query-параметры.
-# URL с конкретным SHA всегда уникален и не кэшируется.
+# raw.githubusercontent.com кэшируется CDN — URL с SHA всегда уникален.
+# GitHub API требует заголовок User-Agent, иначе возвращает 403.
 get_latest_sha() {
-    fetch_text "$API_URL" | grep -o '"sha":"[^"]*"' | head -1 | cut -d'"' -f4
+    local response
+    if command -v curl &>/dev/null; then
+        response=$(curl -fsSL -H "User-Agent: ufw-manager-installer" "$API_URL" 2>/dev/null)
+    else
+        response=$(wget -qO- --header="User-Agent: ufw-manager-installer" "$API_URL" 2>/dev/null)
+    fi
+    # JSON содержит "sha": "abc..." (с пробелом после двоеточия)
+    echo "$response" | grep -o '"sha": *"[^"]*"' | head -1 | grep -o '"[^"]*"$' | tr -d '"'
 }
 
 # ── Получить версию из файла скрипта ──────────────────────────────────────────
