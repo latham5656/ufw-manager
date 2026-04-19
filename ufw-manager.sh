@@ -260,7 +260,7 @@ screen_remove_port() {
     header
     echo -e "  ${W}🗑️  Удалить правило${NC}\n"
 
-    "$UFW_BIN" status numbered 2>&1 | grep -v "(v6)" | sed 's/^/  /'
+    "$UFW_BIN" status numbered 2>&1 | sed 's/^/  /'
     echo ""
 
     local rule_num
