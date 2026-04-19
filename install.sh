@@ -28,7 +28,7 @@ clear
 echo -e "${C}"
 echo "  ╔══════════════════════════════════════════════╗"
 echo "  ║                                              ║"
-echo "  ║        🔥  UFW Manager  Installer  🔥       ║"
+echo "  ║        🔥  UFW Manager  Installer  🔥        ║"
 echo "  ║                                              ║"
 echo "  ╚══════════════════════════════════════════════╝"
 echo -e "${NC}"
