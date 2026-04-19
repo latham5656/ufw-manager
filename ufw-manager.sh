@@ -77,7 +77,7 @@ ufw_status_line() {
 }
 
 is_active() {
-    ufw_status_line | grep -q "active"
+    ufw_status_line | grep -q "^Status: active$"
 }
 
 # ── Экраны ────────────────────────────────────────────────────────────────────
