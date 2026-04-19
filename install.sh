@@ -5,7 +5,7 @@
 #   sudo bash install.sh
 
 REPO="latham5656/ufw-manager"
-API_URL="https://api.github.com/repos/${REPO}/commits/master"
+BASE_URL="https://raw.githubusercontent.com/${REPO}/refs/heads/master"
 OPT_DIR="/opt/ufw-manager"
 INSTALL_BIN="/usr/local/bin/ufw"
 INSTALLED_SCRIPT="$OPT_DIR/ufw-manager.sh"
@@ -37,30 +37,22 @@ print_header() {
     echo -e "${NC}"
 }
 
-# ── Загрузчик ─────────────────────────────────────────────────────────────────
+# ── Загрузчик (с заголовками против CDN-кэша) ────────────────────────────────
 download_file() {
     local url=$1 dest=$2
     if command -v curl &>/dev/null; then
-        curl -fsSL "$url" -o "$dest" 2>/dev/null
+        curl -fsSL \
+            -H "Cache-Control: no-cache, no-store" \
+            -H "Pragma: no-cache" \
+            "$url" -o "$dest" 2>/dev/null
     elif command -v wget &>/dev/null; then
-        wget -qO "$dest" "$url" 2>/dev/null
+        wget -qO "$dest" \
+            --no-cache \
+            --header="Cache-Control: no-cache" \
+            "$url" 2>/dev/null
     else
         return 1
     fi
-}
-
-# ── Получить SHA последнего коммита через GitHub API ──────────────────────────
-# raw.githubusercontent.com кэшируется CDN — URL с SHA всегда уникален.
-# GitHub API требует заголовок User-Agent, иначе возвращает 403.
-get_latest_sha() {
-    local response
-    if command -v curl &>/dev/null; then
-        response=$(curl -fsSL -H "User-Agent: ufw-manager-installer" "$API_URL" 2>/dev/null)
-    else
-        response=$(wget -qO- --header="User-Agent: ufw-manager-installer" "$API_URL" 2>/dev/null)
-    fi
-    # JSON содержит "sha": "abc..." (с пробелом после двоеточия)
-    echo "$response" | grep -o '"sha": *"[^"]*"' | head -1 | grep -o '"[^"]*"$' | tr -d '"'
 }
 
 # ── Получить версию из файла скрипта ──────────────────────────────────────────
@@ -96,19 +88,11 @@ if [[ -f "$LOCAL_SRC" ]]; then
 else
     MODE="remote"
 
-    # Получаем SHA последнего коммита — URL с SHA не кэшируется CDN
-    step_info "Получаю версию с GitHub..."
-    LATEST_SHA=$(get_latest_sha)
-    if [[ -z "$LATEST_SHA" ]]; then
-        step_err "Не удалось получить SHA коммита. Проверьте интернет-соединение."
-        exit 1
-    fi
-
-    RAW_URL="https://raw.githubusercontent.com/${REPO}/${LATEST_SHA}/ufw-manager.sh"
     TMP_SCRIPT=$(mktemp /tmp/ufw-manager-XXXXXX.sh)
 
-    if ! download_file "$RAW_URL" "$TMP_SCRIPT" || [[ ! -s "$TMP_SCRIPT" ]]; then
-        step_err "Не удалось скачать ufw-manager.sh с GitHub"
+    step_info "Скачиваю актуальную версию с GitHub..."
+    if ! download_file "$BASE_URL/ufw-manager.sh" "$TMP_SCRIPT" || [[ ! -s "$TMP_SCRIPT" ]]; then
+        step_err "Не удалось скачать ufw-manager.sh. Проверьте интернет-соединение."
         rm -f "$TMP_SCRIPT"
         exit 1
     fi
@@ -148,7 +132,7 @@ fi
 if [[ "$MODE" == "local" ]]; then
     step_info "Источник: локальный файл"
 else
-    step_info "Источник: GitHub (${LATEST_SHA:0:7})"
+    step_info "Источник: GitHub"
 fi
 
 echo ""
