@@ -6,7 +6,7 @@ UFW_BIN="/usr/sbin/ufw"
 INSTALL_BIN="/usr/local/bin/ufw"
 OPT_DIR="/opt/ufw-manager"
 DESC_FILE="$OPT_DIR/descriptions.conf"
-VERSION="1.0.0"
+VERSION="2.0.0"
 
 # ── Цвета ─────────────────────────────────────────────────────────────────────
 R='\033[0;31m'
