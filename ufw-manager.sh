@@ -83,11 +83,22 @@ is_active() {
 # ── Экраны ────────────────────────────────────────────────────────────────────
 header() {
     clear
+    local inner=44
+    local title="UFW Manager  v${VERSION}"
+    local subtitle="Управление брандмауэром VPS"
+    local border
+    border=$(printf '═%.0s' $(seq 1 $inner))
+
+    local tl=$(( (inner - ${#title}) / 2 ))
+    local tr=$(( inner - ${#title} - tl ))
+    local sl=$(( (inner - ${#subtitle}) / 2 ))
+    local sr=$(( inner - ${#subtitle} - sl ))
+
     echo -e "${C}"
-    echo "  ╔══════════════════════════════════════════╗"
-    echo "  ║   🔥  UFW Manager  v${VERSION}  🔥           ║"
-    echo "  ║      Управление брандмауэром VPS         ║"
-    echo "  ╚══════════════════════════════════════════╝"
+    echo  "  ╔${border}╗"
+    printf "  ║%${tl}s%s%${tr}s║\n" "" "$title" ""
+    printf "  ║%${sl}s%s%${sr}s║\n" "" "$subtitle" ""
+    echo  "  ╚${border}╝"
     echo -e "${NC}"
     if is_active; then
         echo -e "  Брандмауэр: ${G}🟢 Активен${NC}"
