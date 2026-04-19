@@ -11,7 +11,7 @@ PROFILES_DIR="$OPT_DIR/profiles"
 EXPORTS_DIR="$OPT_DIR/exports"
 UPDATE_CACHE="$OPT_DIR/.update_check"
 SCRIPT_REPO_URL="https://raw.githubusercontent.com/latham5656/ufw-manager/refs/heads/master/ufw-manager.sh"
-VERSION="3.3.0"
+VERSION="3.3.1"
 
 # ── Цвета ─────────────────────────────────────────────────────────────────────
 R='\033[0;31m'
@@ -197,7 +197,7 @@ header() {
     fi
 
     [[ -n "$UPDATE_NOTIFY" ]] && \
-        echo -e "  ${Y}⬆️  Доступна новая версия v${UPDATE_NOTIFY}${NC}  ${D}curl ... | sudo bash${NC}"
+        echo -e "  ${Y}⬆️  Доступна новая версия v${UPDATE_NOTIFY} — обновите через пункт 15${NC}"
 
     echo ""
 }
@@ -1041,15 +1041,35 @@ screen_update() {
                         printf '%s\n%s\n' "$(date +%s)" "$ver" > "$UPDATE_CACHE"
                         if is_newer_version "$ver" "$VERSION"; then
                             UPDATE_NOTIFY="$ver"
-                            echo -e "  ${Y}Доступна новая версия: v${ver}${NC}"
+                            echo -e "  ${Y}Доступна новая версия: v${ver}${NC}\n"
+                            read -rp "  Установить сейчас? [y/N]: " install_now
+                            if [[ "${install_now,,}" == "y" ]]; then
+                                local tmp_install
+                                tmp_install=$(mktemp /tmp/ufw-install-XXXXXX.sh)
+                                if curl -fsSL --max-time 15 "$INSTALL_URL" -o "$tmp_install" 2>/dev/null \
+                                    && head -1 "$tmp_install" | grep -q '^#!.*bash'; then
+                                    bash "$tmp_install"
+                                    rm -f "$tmp_install" "$UPDATE_CACHE"
+                                    echo -e "\n  ${G}✅ Обновление завершено. Перезапускаю...${NC}\n"
+                                    sleep 1
+                                    exec "$INSTALL_BIN"
+                                else
+                                    rm -f "$tmp_install"
+                                    echo -e "  ${R}❌ Не удалось скачать установщик.${NC}"
+                                    nav_prompt || return
+                                fi
+                            else
+                                nav_prompt || return
+                            fi
                         else
                             UPDATE_NOTIFY=""
                             echo -e "  ${G}✅ Установлена актуальная версия v${VERSION}.${NC}"
+                            nav_prompt || return
                         fi
                     else
                         echo -e "  ${R}❌ Не удалось проверить обновления.${NC}"
+                        nav_prompt || return
                     fi
-                    nav_prompt || return
                 fi
                 ;;
             0|"") return ;;
