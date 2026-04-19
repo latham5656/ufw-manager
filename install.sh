@@ -15,26 +15,26 @@ W='\033[1;37m'
 NC='\033[0m'
 
 if [[ $EUID -ne 0 ]]; then
-    echo -e "${R}Error: run as root: sudo bash install.sh${NC}" >&2
+    echo -e "${R}❌ Ошибка: запустите от имени root: sudo bash install.sh${NC}" >&2
     exit 1
 fi
 
 if [[ ! -f "$SCRIPT_SRC" ]]; then
-    echo -e "${R}Error: ufw-manager.sh not found in $SCRIPT_DIR${NC}" >&2
+    echo -e "${R}❌ Ошибка: файл ufw-manager.sh не найден в $SCRIPT_DIR${NC}" >&2
     exit 1
 fi
 
-echo -e "${Y}Installing UFW Manager...${NC}\n"
+echo -e "${Y}⚙️  Устанавливаю UFW Manager...${NC}\n"
 
-# Create data directory
+# Создать директорию данных
 mkdir -p "$DATA_DIR"
-echo -e "  ${G}✓${NC} Created data directory: $DATA_DIR"
+echo -e "  ${G}✅${NC} Создана директория: $DATA_DIR"
 
-# Install script
+# Установить скрипт
 cp "$SCRIPT_SRC" "$INSTALL_PATH"
 chmod +x "$INSTALL_PATH"
-echo -e "  ${G}✓${NC} Installed to: $INSTALL_PATH"
+echo -e "  ${G}✅${NC} Скрипт установлен в: $INSTALL_PATH"
 
-echo -e "\n${G}Installation complete!${NC}"
-echo -e "Run ${W}sudo ufw${NC} to open the interactive menu."
-echo -e "Run ${W}sudo ufw status${NC} etc. to use ufw normally (passthrough).\n"
+echo -e "\n${G}🎉 Установка завершена!${NC}"
+echo -e "Откройте меню командой: ${W}sudo ufw${NC}"
+echo -e "Стандартные команды (${W}sudo ufw status${NC} и др.) работают как прежде.\n"

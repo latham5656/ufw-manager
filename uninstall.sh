@@ -12,24 +12,24 @@ Y='\033[1;33m'
 NC='\033[0m'
 
 if [[ $EUID -ne 0 ]]; then
-    echo -e "${R}Error: run as root: sudo bash uninstall.sh${NC}" >&2
+    echo -e "${R}❌ Ошибка: запустите от имени root: sudo bash uninstall.sh${NC}" >&2
     exit 1
 fi
 
-echo -e "${Y}Uninstalling UFW Manager...${NC}\n"
+echo -e "${Y}🗑️  Удаляю UFW Manager...${NC}\n"
 
 if [[ -f "$INSTALL_PATH" ]]; then
     rm -f "$INSTALL_PATH"
-    echo -e "  ${G}✓${NC} Removed $INSTALL_PATH"
+    echo -e "  ${G}✅${NC} Удалён файл $INSTALL_PATH"
 else
-    echo -e "  ${Y}!${NC} $INSTALL_PATH not found, skipping"
+    echo -e "  ${Y}⚠️ ${NC} $INSTALL_PATH не найден, пропускаю"
 fi
 
 echo ""
-read -rp "  Remove descriptions data ($DATA_DIR)? [y/N]: " confirm
+read -rp "  Удалить сохранённые описания ($DATA_DIR)? [y/N]: " confirm
 if [[ "${confirm,,}" == "y" ]]; then
     rm -rf "$DATA_DIR"
-    echo -e "  ${G}✓${NC} Removed $DATA_DIR"
+    echo -e "  ${G}✅${NC} Удалена директория $DATA_DIR"
 fi
 
-echo -e "\n${G}Uninstalled successfully.${NC}\n"
+echo -e "\n${G}✅ UFW Manager успешно удалён.${NC}\n"

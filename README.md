@@ -1,26 +1,87 @@
-# UFW Manager
+<div align="center">
 
-Interactive terminal menu for managing UFW (Uncomplicated Firewall) on Linux VPS servers.
+```
+██╗   ██╗███████╗██╗    ██╗    ███╗   ███╗ █████╗ ███╗   ██╗ █████╗  ██████╗ ███████╗██████╗
+██║   ██║██╔════╝██║    ██║    ████╗ ████║██╔══██╗████╗  ██║██╔══██╗██╔════╝ ██╔════╝██╔══██╗
+██║   ██║█████╗  ██║ █╗ ██║    ██╔████╔██║███████║██╔██╗ ██║███████║██║  ███╗█████╗  ██████╔╝
+██║   ██║██╔══╝  ██║███╗██║    ██║╚██╔╝██║██╔══██║██║╚██╗██║██╔══██║██║   ██║██╔══╝  ██╔══██╗
+╚██████╔╝██║     ╚███╔███╔╝    ██║ ╚═╝ ██║██║  ██║██║ ╚████║██║  ██║╚██████╔╝███████╗██║  ██║
+ ╚═════╝ ╚═╝      ╚══╝╚══╝     ╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝
+```
 
-## Features
+**Интерактивное управление брандмауэром UFW прямо из терминала**
 
-- Enable / disable UFW
-- Add port rules (TCP, UDP, or both) with a description
-- Bind a port rule to a specific IP address
-- Remove rules by number
-- View all rules with saved descriptions and IP bindings
-- Full status view
-- Reset all rules
-- Passthrough mode — `sudo ufw status` still works normally
+[![Bash](https://img.shields.io/badge/Shell-Bash-4EAA25?style=for-the-badge&logo=gnubash&logoColor=white)](https://www.gnu.org/software/bash/)
+[![Linux](https://img.shields.io/badge/Linux-Ubuntu%20%2F%20Debian-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
+[![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
+[![Version](https://img.shields.io/badge/Version-1.0.0-brightgreen?style=for-the-badge)]()
 
-## Requirements
+</div>
 
-- Linux (Ubuntu / Debian recommended)
-- `ufw` installed (`apt install ufw`)
+---
+
+## 🔥 Что это такое?
+
+**UFW Manager** — это красивый интерактивный скрипт для управления брандмауэром на Linux VPS.  
+Вместо скучных команд — удобное **цветное меню** прямо в терминале.
+
+Вызывается одной командой: `sudo ufw` — и вы уже в меню.
+
+---
+
+## ✨ Возможности
+
+| Функция | Описание |
+|--------|----------|
+| 🟢 Включить / Отключить | Управление состоянием брандмауэра |
+| 📋 Список правил | Показ всех правил **с описаниями** и IP-привязками |
+| ➕ Добавить порт | Добавление правила с протоколом, IP и описанием |
+| 🗑️ Удалить правило | Удаление по номеру из меню |
+| 🔒 Привязка к IP | Ограничение порта для конкретного IP-адреса |
+| 💬 Описания | Подписи к каждому правилу — видно что и зачем |
+| 🔄 Перезагрузка | Горячая перезагрузка правил |
+| 💣 Сброс | Полный сброс до заводских настроек с подтверждением |
+| 🔁 Совместимость | `sudo ufw status`, `sudo ufw allow 22` — всё работает как раньше |
+
+---
+
+## 📺 Как выглядит меню
+
+```
+  ╔══════════════════════════════════════════╗
+  ║   🔥  UFW Manager  v1.0.0  🔥           ║
+  ║      Управление брандмауэром VPS         ║
+  ╚══════════════════════════════════════════╝
+
+  Брандмауэр: 🟢 Активен
+
+  1) 📊 Статус брандмауэра
+  2) 📋 Список правил с описаниями
+  3) ✅ Включить UFW
+  4) ⛔ Отключить UFW
+  ─────────────────────────────────────
+  5) ➕ Добавить правило (порт + описание + IP)
+  6) 🗑️  Удалить правило
+  7) 🔄 Перезагрузить UFW
+  ─────────────────────────────────────
+  8) 💣 Сбросить все правила
+  0) 🚪 Выход
+
+  Выберите пункт:
+```
+
+---
+
+## ⚙️ Требования
+
+- 🐧 Linux (Ubuntu / Debian рекомендуется)
+- `ufw` установлен (`apt install ufw`)
 - Bash 4+
-- Root / sudo access
+- Права root / sudo
 
-## Installation
+---
+
+## 🚀 Установка
 
 ```bash
 git clone https://github.com/latham5656/ufw-manager.git
@@ -28,54 +89,100 @@ cd ufw-manager
 sudo bash install.sh
 ```
 
-The installer copies `ufw-manager.sh` to `/usr/local/bin/ufw`, which takes precedence over the system `ufw` in `PATH`. The real `ufw` binary at `/usr/sbin/ufw` is called internally, so all existing `ufw` commands continue to work.
+Скрипт копируется в `/usr/local/bin/ufw` — это место имеет приоритет над `/usr/sbin/ufw` в PATH.  
+Все стандартные команды `ufw` по-прежнему работают через встроенный проброс.
 
-## Usage
+---
 
-Open the interactive menu:
+## 🎮 Использование
+
+### Открыть интерактивное меню:
 
 ```bash
 sudo ufw
 ```
 
-All standard ufw commands still work via passthrough:
+### Стандартные команды тоже работают (проброс в системный ufw):
 
 ```bash
 sudo ufw status
 sudo ufw allow 22/tcp
 sudo ufw disable
+sudo ufw reload
 ```
 
-## Menu options
+---
 
-| Option | Description |
-|--------|-------------|
-| 1 | Show verbose UFW status |
-| 2 | List all rules with descriptions and IP bindings |
-| 3 | Enable UFW |
-| 4 | Disable UFW |
-| 5 | Add a port rule (with description and optional IP binding) |
-| 6 | Remove a port rule by number |
-| 7 | Reload UFW |
-| 8 | Reset all rules to defaults |
+## ➕ Добавление порта — пошагово
 
-## Adding a port
+При выборе пункта **5** скрипт задаст вопросы:
 
-When you choose option **5**, you will be prompted for:
+```
+  Номер порта (или диапазон, напр. 8000:9000): 443
 
-1. **Port** — single port or range (e.g. `443` or `8000:9000`)
-2. **Protocol** — TCP, UDP, or both
-3. **IP binding** — restrict the rule to a specific source IP (optional)
-4. **Description** — a short label like `Nginx HTTPS` or `Wireguard VPN`
+  Протокол:
+    1) TCP
+    2) UDP
+    3) TCP + UDP (по умолчанию)
+  Выбор [1-3]: 1
 
-Descriptions and IP bindings are stored in `/etc/ufw-manager/descriptions.conf` and shown in the rules list (option 2).
+  Привязать к IP-адресу? (оставьте пустым — для всех): 192.168.1.10
 
-## Uninstall
+  Описание (напр. 'Nginx HTTPS'): Nginx — HTTPS сервер
+
+  ✅ Правило добавлено:
+    Порт       : 443 (tcp)
+    IP-привязка: 192.168.1.10
+    Описание   : Nginx — HTTPS сервер
+```
+
+---
+
+## 📋 Список правил с описаниями
+
+Пункт **2** показывает все правила с подписями:
+
+```
+  [ 1] 22/tcp                     ALLOW IN    Anywhere
+       💬 описание:  SSH доступ
+  
+  [ 2] 443/tcp                    ALLOW IN    Anywhere
+       💬 описание:  Nginx — HTTPS сервер
+       🔒 ip-привязка: 192.168.1.10
+```
+
+Описания хранятся в `/etc/ufw-manager/descriptions.conf` и не удаляются при перезагрузке сервера.
+
+---
+
+## 🗑️ Удаление
 
 ```bash
 sudo bash uninstall.sh
 ```
 
-## License
+---
 
-MIT
+## 📁 Структура проекта
+
+```
+ufw-manager/
+├── ufw-manager.sh   # Главный скрипт с меню
+├── install.sh       # Установщик
+├── uninstall.sh     # Удаление
+└── README.md        # Документация
+```
+
+---
+
+## 📄 Лицензия
+
+MIT — используйте свободно.
+
+---
+
+<div align="center">
+
+Сделано с ❤️ для администраторов VPS
+
+</div>
