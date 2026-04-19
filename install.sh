@@ -1,98 +1,189 @@
 #!/bin/bash
-# UFW Manager — Установщик
-# Поддерживает два режима:
-#   1) curl -fsSL https://raw.githubusercontent.com/latham5656/ufw-manager/refs/heads/master/install.sh | sudo bash
-#   2) sudo bash install.sh  (из клонированного репозитория)
+# UFW Manager — Установщик / Обновлятор
+# Режимы запуска:
+#   curl -fsSL https://raw.githubusercontent.com/latham5656/ufw-manager/refs/heads/master/install.sh | sudo bash
+#   sudo bash install.sh
 
 BASE_URL="https://raw.githubusercontent.com/latham5656/ufw-manager/refs/heads/master"
 OPT_DIR="/opt/ufw-manager"
 INSTALL_BIN="/usr/local/bin/ufw"
+INSTALLED_SCRIPT="$OPT_DIR/ufw-manager.sh"
 
+# ── Цвета ─────────────────────────────────────────────────────────────────────
 R='\033[0;31m'
 G='\033[0;32m'
 Y='\033[1;33m'
+C='\033[0;36m'
 W='\033[1;37m'
 D='\033[2m'
 NC='\033[0m'
 
-# ── Проверки ──────────────────────────────────────────────────────────────────
+# ── Шаги ──────────────────────────────────────────────────────────────────────
+step_ok()   { echo -e "  ${G}[  OK  ]${NC}  $1"; }
+step_skip() { echo -e "  ${D}[ SKIP ]${NC}  $1"; }
+step_info() { echo -e "  ${C}[ INFO ]${NC}  $1"; }
+step_err()  { echo -e "  ${R}[ ERR  ]${NC}  $1"; }
+
+# ── Шапка ─────────────────────────────────────────────────────────────────────
+print_header() {
+    clear
+    echo -e "${C}"
+    echo "  ╔══════════════════════════════════════════════╗"
+    echo "  ║                                              ║"
+    echo "  ║        🔥  UFW Manager  Installer  🔥        ║"
+    echo "  ║                                              ║"
+    echo "  ╚══════════════════════════════════════════════╝"
+    echo -e "${NC}"
+}
+
+# ── Загрузчик ─────────────────────────────────────────────────────────────────
+download_file() {
+    local url=$1 dest=$2
+    if command -v curl &>/dev/null; then
+        curl -fsSL "$url" -o "$dest" 2>/dev/null
+    elif command -v wget &>/dev/null; then
+        wget -qO "$dest" "$url" 2>/dev/null
+    else
+        return 1
+    fi
+}
+
+# ── Получить версию из файла скрипта ──────────────────────────────────────────
+get_version() {
+    grep -oP '(?<=^VERSION=")[^"]+' "$1" 2>/dev/null || echo "0.0.0"
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+
+print_header
+
+# ── Проверка root ──────────────────────────────────────────────────────────────
 if [[ $EUID -ne 0 ]]; then
-    echo -e "${R}❌ Ошибка: запустите от имени root.${NC}" >&2
-    echo -e "  curl ... | ${W}sudo${NC} bash" >&2
+    step_err "Запустите от имени root:"
+    echo -e "\n    curl ... | ${W}sudo${NC} bash\n"
     exit 1
 fi
 
-# ── Определяем режим: локальный или remote ─────────────────────────────────────
+# ── Проверка curl/wget ────────────────────────────────────────────────────────
+if ! command -v curl &>/dev/null && ! command -v wget &>/dev/null; then
+    step_err "Не найдены curl или wget. Установите: apt install curl"
+    exit 1
+fi
+
+# ── Определяем источник: локальный файл или GitHub ────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || SCRIPT_DIR=""
 LOCAL_SRC="$SCRIPT_DIR/ufw-manager.sh"
-
-echo -e "${Y}"
-echo "  ╔══════════════════════════════════════════╗"
-echo "  ║   🔥  UFW Manager — Установка  🔥        ║"
-echo "  ╚══════════════════════════════════════════╝"
-echo -e "${NC}"
-
-# ── Получить ufw-manager.sh ───────────────────────────────────────────────────
 TMP_SCRIPT=""
 
 if [[ -f "$LOCAL_SRC" ]]; then
-    echo -e "  ${D}Режим: локальная установка${NC}"
+    MODE="local"
     SRC_FILE="$LOCAL_SRC"
 else
-    echo -e "  ${D}Режим: загрузка с GitHub...${NC}"
-
-    # Проверяем наличие curl или wget
-    if command -v curl &>/dev/null; then
-        DOWNLOADER="curl"
-    elif command -v wget &>/dev/null; then
-        DOWNLOADER="wget"
-    else
-        echo -e "\n  ${R}❌ Ошибка: не найдены curl или wget.${NC}" >&2
-        echo -e "  Установите: ${W}apt install curl${NC}" >&2
-        exit 1
-    fi
-
+    MODE="remote"
     TMP_SCRIPT=$(mktemp /tmp/ufw-manager-XXXXXX.sh)
-
-    echo -e "  Скачиваю ufw-manager.sh..."
-    if [[ "$DOWNLOADER" == "curl" ]]; then
-        curl -fsSL "$BASE_URL/ufw-manager.sh" -o "$TMP_SCRIPT" 2>&1
-    else
-        wget -qO "$TMP_SCRIPT" "$BASE_URL/ufw-manager.sh" 2>&1
-    fi
-
-    if [[ $? -ne 0 || ! -s "$TMP_SCRIPT" ]]; then
-        echo -e "\n  ${R}❌ Не удалось скачать ufw-manager.sh${NC}" >&2
+    if ! download_file "$BASE_URL/ufw-manager.sh" "$TMP_SCRIPT" || [[ ! -s "$TMP_SCRIPT" ]]; then
+        step_err "Не удалось скачать ufw-manager.sh с GitHub"
         rm -f "$TMP_SCRIPT"
         exit 1
     fi
-
     SRC_FILE="$TMP_SCRIPT"
 fi
 
+# ── Определяем версии ─────────────────────────────────────────────────────────
+REMOTE_VER=$(get_version "$SRC_FILE")
+INSTALLED_VER=""
+IS_UPDATE=false
+
+if [[ -f "$INSTALLED_SCRIPT" ]]; then
+    INSTALLED_VER=$(get_version "$INSTALLED_SCRIPT")
+    if [[ "$INSTALLED_VER" == "$REMOTE_VER" ]]; then
+        IS_UPDATE=false
+        ALREADY_UPTODATE=true
+    else
+        IS_UPDATE=true
+        ALREADY_UPTODATE=false
+    fi
+fi
+
+# ── Шапка режима ──────────────────────────────────────────────────────────────
+if [[ "$IS_UPDATE" == true ]]; then
+    echo -e "  ${Y}Режим: обновление${NC}  ${D}${INSTALLED_VER}${NC} ${W}→${NC} ${G}${REMOTE_VER}${NC}"
+elif [[ -n "$INSTALLED_VER" && "$ALREADY_UPTODATE" == true ]]; then
+    echo -e "  ${G}Установлена актуальная версия ${REMOTE_VER} — уже обновлено.${NC}"
+    echo ""
+    step_info "Для переустановки удалите $INSTALLED_SCRIPT и запустите снова."
+    echo ""
+    [[ -n "$TMP_SCRIPT" ]] && rm -f "$TMP_SCRIPT"
+    exit 0
+else
+    echo -e "  ${C}Режим: новая установка${NC}  ${W}v${REMOTE_VER}${NC}"
+fi
+
+if [[ "$MODE" == "local" ]]; then
+    step_info "Источник: локальный файл"
+else
+    step_info "Источник: GitHub"
+fi
+
+echo ""
+echo -e "  ${D}────────────────────────────────────────────────${NC}"
 echo ""
 
-# ── Установка ─────────────────────────────────────────────────────────────────
-mkdir -p "$OPT_DIR"
-echo -e "  ${G}✅${NC} Создана директория       : $OPT_DIR"
+# ── Установка / Обновление ────────────────────────────────────────────────────
 
-cp "$SRC_FILE" "$OPT_DIR/ufw-manager.sh"
-chmod +x "$OPT_DIR/ufw-manager.sh"
-echo -e "  ${G}✅${NC} Скрипт установлен в      : $OPT_DIR/ufw-manager.sh"
+# Директория
+if mkdir -p "$OPT_DIR" 2>/dev/null; then
+    step_ok "Директория: $OPT_DIR"
+else
+    step_err "Не удалось создать $OPT_DIR"
+    [[ -n "$TMP_SCRIPT" ]] && rm -f "$TMP_SCRIPT"
+    exit 1
+fi
 
-touch "$OPT_DIR/descriptions.conf"
-echo -e "  ${G}✅${NC} Создан файл метаданных   : $OPT_DIR/descriptions.conf"
+# Скрипт
+if cp "$SRC_FILE" "$INSTALLED_SCRIPT" && chmod +x "$INSTALLED_SCRIPT"; then
+    if [[ "$IS_UPDATE" == true ]]; then
+        step_ok "Скрипт обновлён:  $INSTALLED_SCRIPT"
+    else
+        step_ok "Скрипт установлен: $INSTALLED_SCRIPT"
+    fi
+else
+    step_err "Не удалось записать $INSTALLED_SCRIPT"
+    [[ -n "$TMP_SCRIPT" ]] && rm -f "$TMP_SCRIPT"
+    exit 1
+fi
 
-ln -sf "$OPT_DIR/ufw-manager.sh" "$INSTALL_BIN"
-echo -e "  ${G}✅${NC} Символическая ссылка     : $INSTALL_BIN"
+# Файл метаданных (только при новой установке)
+if [[ ! -f "$OPT_DIR/descriptions.conf" ]]; then
+    touch "$OPT_DIR/descriptions.conf"
+    step_ok "Файл метаданных:  $OPT_DIR/descriptions.conf"
+else
+    step_skip "Файл метаданных уже существует — не трогаем"
+fi
 
-# ── Очистка временного файла ──────────────────────────────────────────────────
+# Символическая ссылка
+if ln -sf "$INSTALLED_SCRIPT" "$INSTALL_BIN"; then
+    step_ok "Команда:          $INSTALL_BIN → $INSTALLED_SCRIPT"
+else
+    step_err "Не удалось создать ссылку $INSTALL_BIN"
+    [[ -n "$TMP_SCRIPT" ]] && rm -f "$TMP_SCRIPT"
+    exit 1
+fi
+
 [[ -n "$TMP_SCRIPT" ]] && rm -f "$TMP_SCRIPT"
 
-# ── Готово ────────────────────────────────────────────────────────────────────
+# ── Итог ──────────────────────────────────────────────────────────────────────
 echo ""
-echo -e "${G}🎉 Установка завершена!${NC}"
+echo -e "  ${D}────────────────────────────────────────────────${NC}"
 echo ""
-echo -e "  Открыть меню    : ${W}sudo ufw${NC}"
-echo -e "  Стандартные cmd : ${W}sudo ufw status${NC}${D} (работают как прежде)${NC}"
+
+if [[ "$IS_UPDATE" == true ]]; then
+    echo -e "  ${G}Обновление до v${REMOTE_VER} завершено!${NC}"
+else
+    echo -e "  ${G}Установка v${REMOTE_VER} завершена!${NC}"
+fi
+
+echo ""
+echo -e "  Открыть меню : ${W}sudo ufw${NC}"
+echo -e "  Обычные cmd  : ${W}sudo ufw status${NC}${D}, sudo ufw allow 22/tcp${NC}"
 echo ""
