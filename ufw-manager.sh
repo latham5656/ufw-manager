@@ -11,7 +11,7 @@ PROFILES_DIR="$OPT_DIR/profiles"
 EXPORTS_DIR="$OPT_DIR/exports"
 UPDATE_CACHE="$OPT_DIR/.update_check"
 SCRIPT_REPO_URL="https://raw.githubusercontent.com/latham5656/ufw-manager/refs/heads/master/ufw-manager.sh"
-VERSION="3.2.0"
+VERSION="3.3.0"
 
 # ── Цвета ─────────────────────────────────────────────────────────────────────
 R='\033[0;31m'
@@ -527,6 +527,192 @@ screen_remove_port() {
     done
 }
 
+# ── Редактировать правило ─────────────────────────────────────────────────────
+screen_edit_rule() {
+    while true; do
+        header
+        echo -e "  ${W}✏️  Редактировать правило${NC}\n"
+
+        local numbered
+        numbered=$("$UFW_BIN" status numbered 2>&1)
+
+        if echo "$numbered" | grep -q "Status: inactive"; then
+            echo -e "  ${Y}⚠️  UFW отключён — правила недоступны.${NC}"
+            nav_prompt || return; continue
+        fi
+
+        # Показываем только IPv4 правила
+        local has_rules=0
+        while IFS= read -r line; do
+            [[ $line == *"(v6)"* ]] && continue
+            if [[ $line =~ ^\[([[:space:]]*[0-9]+)\] ]]; then
+                has_rules=1
+                if [[ $line == *'#'* ]]; then
+                    echo -e "  ${W}${line%%#*}${NC}${Y}#${line#*#}${NC}"
+                elif [[ $line == *"DENY"* || $line == *"REJECT"* ]]; then
+                    echo -e "  ${R}${line}${NC}"
+                elif [[ $line == *"ALLOW"* ]]; then
+                    echo -e "  ${G}${line}${NC}"
+                else
+                    echo -e "  ${W}${line}${NC}"
+                fi
+            else
+                echo "  $line"
+            fi
+        done <<< "$numbered"
+
+        if [[ $has_rules -eq 0 ]]; then
+            echo -e "  ${D}Правил нет.${NC}"
+            nav_prompt || return; continue
+        fi
+
+        echo ""
+        local rule_num
+        read -rp "  Номер правила для редактирования (0 — назад): " rule_num
+        [[ "$rule_num" == "0" || -z "$rule_num" ]] && return
+        if [[ ! "$rule_num" =~ ^[0-9]+$ ]]; then
+            echo -e "  ${R}❌ Введите число.${NC}"; sleep 1; continue
+        fi
+
+        local rule_line
+        rule_line=$(echo "$numbered" | grep -P "^\[ *${rule_num}\]")
+        if [[ -z "$rule_line" ]]; then
+            echo -e "  ${R}❌ Правило #${rule_num} не найдено.${NC}"; sleep 1; continue
+        fi
+        if [[ "$rule_line" == *"(v6)"* ]]; then
+            echo -e "  ${Y}IPv6-правила редактируются автоматически вместе с IPv4.${NC}"; sleep 1; continue
+        fi
+
+        # Парсим поля правила
+        local port proto from_ip comment action_type
+
+        port=$(echo "$rule_line"    | grep -oP '\b\d{1,5}(?=/(?:tcp|udp))' | head -1)
+        proto=$(echo "$rule_line"   | grep -oP '(?<=\d/)(tcp|udp)' | head -1)
+        comment=$(echo "$rule_line" | grep -oP '(?<=#)\s*.+' | sed 's/^\s*//')
+
+        # "From" IP — первое слово после ALLOW IN / DENY IN
+        from_ip=$(echo "$rule_line" \
+            | sed 's/.*\(ALLOW\|DENY\|REJECT\) \(IN\|FWD\|OUT\)\s*//' \
+            | awk '{print $1}')
+        [[ "$from_ip" == "Anywhere" || "$from_ip" == "0.0.0.0/0" || -z "$from_ip" ]] && from_ip="any"
+
+        [[ $rule_line == *"DENY"* || $rule_line == *"REJECT"* ]] \
+            && action_type="deny" || action_type="allow"
+
+        if [[ -z "$port" ]]; then
+            echo -e "  ${Y}⚠️  Это правило блокировки IP — управляйте через пункт 7.${NC}"
+            sleep 2; continue
+        fi
+
+        # Внутренний цикл редактирования
+        local new_proto="${proto:-any}" new_ip="$from_ip" new_comment="$comment"
+
+        while true; do
+            header
+            echo -e "  ${W}✏️  Редактирование правила #${rule_num}${NC}\n"
+            echo -e "  ${D}──────────────────────────────────${NC}"
+            echo -e "    Порт       : ${W}${port}${NC}"
+            echo -e "    Протокол   : ${W}${new_proto}${NC}"
+            echo -e "    IP-источник: ${W}${new_ip}${NC}  ${D}(any = все адреса)${NC}"
+            echo -e "    Комментарий: ${Y}${new_comment:-—}${NC}"
+            echo -e "  ${D}──────────────────────────────────${NC}\n"
+            echo -e "  ${W}1)${NC} Изменить протокол    ${D}(сейчас: ${new_proto})${NC}"
+            echo -e "  ${W}2)${NC} Изменить IP-источник ${D}(сейчас: ${new_ip})${NC}"
+            echo -e "  ${W}3)${NC} Изменить комментарий ${D}(сейчас: ${new_comment:-—})${NC}"
+            echo -e "  ${W}4)${NC} ${G}✅ Применить изменения${NC}"
+            echo -e "  ${W}0)${NC} Отмена"
+            echo ""
+            read -rp "  Выбор: " edit_choice
+
+            case "$edit_choice" in
+                1)
+                    echo ""
+                    echo -e "  Протокол:"
+                    echo -e "    ${W}1)${NC} TCP"
+                    echo -e "    ${W}2)${NC} UDP"
+                    echo -e "    ${W}3)${NC} TCP + UDP"
+                    read -rp "  Выбор [1-3]: " pc
+                    case "$pc" in
+                        1) new_proto="tcp" ;;
+                        2) new_proto="udp" ;;
+                        3) new_proto="any" ;;
+                        *) echo -e "  ${D}Без изменений.${NC}"; sleep 0.5 ;;
+                    esac
+                    ;;
+                2)
+                    echo ""
+                    read -rp "  Новый IP-источник (пусто = для всех): " inp
+                    if [[ -z "$inp" ]]; then
+                        new_ip="any"
+                    elif validate_ip "$inp"; then
+                        new_ip="$inp"
+                    else
+                        echo -e "  ${R}❌ Некорректный IP «${inp}»${NC}"; sleep 1
+                    fi
+                    ;;
+                3)
+                    echo ""
+                    read -rp "  Новый комментарий (пусто = удалить): " new_comment
+                    ;;
+                4)
+                    echo ""
+                    echo -e "  ${Y}⏳ Применяю изменения...${NC}\n"
+
+                    # Паттерн для поиска v6-дублёра
+                    local v6_pattern
+                    [[ "$proto" == "any" ]] \
+                        && v6_pattern="${port}.*\(v6\)" \
+                        || v6_pattern="${port}/${proto}.*\(v6\)"
+
+                    # Удаляем v4
+                    echo "y" | "$UFW_BIN" delete "$rule_num" &>/dev/null
+
+                    # После удаления v4 ищем v6 по содержимому (номер мог сдвинуться)
+                    local v6_num
+                    v6_num=$("$UFW_BIN" status numbered 2>/dev/null \
+                        | grep -P "^\[.*\] ${v6_pattern}" \
+                        | grep -oP '(?<=\[)\s*\d+' | tr -d ' ' | head -1)
+                    [[ -n "$v6_num" ]] && echo "y" | "$UFW_BIN" delete "$v6_num" &>/dev/null
+
+                    # Убираем старую IP-привязку из нашего файла
+                    remove_ip_binding "$port" "$proto"
+
+                    # Добавляем с новыми параметрами
+                    local desc="${new_comment:-Без описания}"
+                    local ufw_out ufw_exit=0
+
+                    if [[ "$new_ip" != "any" ]]; then
+                        if [[ "$new_proto" == "any" ]]; then
+                            ufw_out=$("$UFW_BIN" allow from "$new_ip" to any port "$port" comment "$desc" 2>&1) || ufw_exit=$?
+                        else
+                            ufw_out=$("$UFW_BIN" allow from "$new_ip" to any port "$port" proto "$new_proto" comment "$desc" 2>&1) || ufw_exit=$?
+                        fi
+                    else
+                        if [[ "$new_proto" == "any" ]]; then
+                            ufw_out=$("$UFW_BIN" allow from 0.0.0.0/0 to any port "$port" comment "$desc" 2>&1) || ufw_exit=$?
+                        else
+                            ufw_out=$("$UFW_BIN" allow from 0.0.0.0/0 to any port "$port" proto "$new_proto" comment "$desc" 2>&1) || ufw_exit=$?
+                        fi
+                    fi
+
+                    echo "$ufw_out" | sed 's/^/  /'
+
+                    if [[ $ufw_exit -eq 0 ]]; then
+                        [[ "$new_ip" != "any" ]] && save_ip_binding "$port" "$new_proto" "$new_ip"
+                        echo -e "\n  ${G}✅ Правило успешно изменено.${NC}"
+                    else
+                        echo -e "\n  ${R}❌ Не удалось применить изменения.${NC}"
+                    fi
+                    sleep 1
+                    break  # Выходим из редактора, возвращаемся к выбору правила
+                    ;;
+                0|"") break ;;
+                *) sleep 0.4 ;;
+            esac
+        done
+    done
+}
+
 # ── Перезагрузить ─────────────────────────────────────────────────────────────
 screen_reload() {
     while true; do
@@ -927,20 +1113,21 @@ main_menu() {
         echo -e "  ${W}4)${NC}  ⛔ Отключить UFW"
         echo -e "  ─────────────────────────────────────"
         echo -e "  ${W}5)${NC}  ➕ Добавить правило ${D}(порт + IP + описание)${NC}"
-        echo -e "  ${W}6)${NC}  🚫 Заблокировать / разблокировать IP"
-        echo -e "  ${W}7)${NC}  🗑️  Удалить правила ${D}(один или несколько)${NC}"
-        echo -e "  ${W}8)${NC}  🔄 Перезагрузить UFW"
+        echo -e "  ${W}6)${NC}  ✏️  Редактировать правило ${D}(протокол, IP, комментарий)${NC}"
+        echo -e "  ${W}7)${NC}  🚫 Заблокировать / разблокировать IP"
+        echo -e "  ${W}8)${NC}  🗑️  Удалить правила ${D}(один или несколько)${NC}"
+        echo -e "  ${W}9)${NC}  🔄 Перезагрузить UFW"
         echo -e "  ─────────────────────────────────────"
-        echo -e "  ${W}9)${NC}  📁 Профили правил"
-        echo -e "  ${W}10)${NC} 💾 Экспорт / Импорт правил"
-        echo -e "  ${W}11)${NC} 📜 Лог брандмауэра"
+        echo -e "  ${W}10)${NC} 📁 Профили правил"
+        echo -e "  ${W}11)${NC} 💾 Экспорт / Импорт правил"
+        echo -e "  ${W}12)${NC} 📜 Лог брандмауэра"
         echo -e "  ─────────────────────────────────────"
-        echo -e "  ${W}12)${NC} ${R}💣 Сбросить все правила${NC}"
-        echo -e "  ${W}13)${NC} ${R}🗑️  Удалить UFW Manager${NC}"
+        echo -e "  ${W}13)${NC} ${R}💣 Сбросить все правила${NC}"
+        echo -e "  ${W}14)${NC} ${R}🗑️  Удалить UFW Manager${NC}"
         if [[ -n "$UPDATE_NOTIFY" ]]; then
-            echo -e "  ${W}14)${NC} ${Y}⬆️  Обновить до v${UPDATE_NOTIFY}${NC}"
+            echo -e "  ${W}15)${NC} ${Y}⬆️  Обновить до v${UPDATE_NOTIFY}${NC}"
         else
-            echo -e "  ${W}14)${NC} ⬆️  Обновления"
+            echo -e "  ${W}15)${NC} ⬆️  Обновления"
         fi
         echo -e "  ${W}0)${NC}  🚪 Выход"
         echo ""
@@ -952,15 +1139,16 @@ main_menu() {
             3)  screen_enable ;;
             4)  screen_disable ;;
             5)  screen_add_port ;;
-            6)  screen_block_ip ;;
-            7)  screen_remove_port ;;
-            8)  screen_reload ;;
-            9)  screen_profiles ;;
-            10) screen_export_import ;;
-            11) screen_log ;;
-            12) screen_reset ;;
-            13) screen_uninstall ;;
-            14) screen_update ;;
+            6)  screen_edit_rule ;;
+            7)  screen_block_ip ;;
+            8)  screen_remove_port ;;
+            9)  screen_reload ;;
+            10) screen_profiles ;;
+            11) screen_export_import ;;
+            12) screen_log ;;
+            13) screen_reset ;;
+            14) screen_uninstall ;;
+            15) screen_update ;;
             0)
                 echo -e "\n  ${G}👋 До свидания!${NC}\n"
                 exit 0

@@ -14,7 +14,7 @@
 [![Bash](https://img.shields.io/badge/Shell-Bash-4EAA25?style=for-the-badge&logo=gnubash&logoColor=white)](https://www.gnu.org/software/bash/)
 [![Linux](https://img.shields.io/badge/Linux-Ubuntu%20%2F%20Debian-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-3.2.0-brightgreen?style=for-the-badge)]()
+[![Version](https://img.shields.io/badge/Version-3.3.0-brightgreen?style=for-the-badge)]()
 
 </div>
 
@@ -57,6 +57,7 @@ sudo ufw
 | 📋 Список правил | Правила с цветной подсветкой ALLOW/DENY, поиском и IP-привязками (IPv6 скрыты) |
 | ➕ Добавить правило | Порт с протоколом, IP-привязкой и описанием; валидация IP и порта до применения |
 | 🚫 Блокировка IP | Быстрая блокировка/разблокировка IP с указанием причины и историей |
+| ✏️ Редактировать правило | Изменить протокол, IP-источник и комментарий существующего правила без пересоздания вручную |
 | 🗑️ Удалить правила | Удаление одного или нескольких правил по номерам через пробел/запятую |
 | 📁 Профили | Сохранение и загрузка наборов правил — удобно для переключения конфигураций |
 | 💾 Экспорт / Импорт | Экспорт правил в .sh скрипт для переноса на другой сервер |
@@ -72,7 +73,7 @@ sudo ufw
 
 ```
   ╔════════════════════════════════════════════╗
-  ║           UFW Manager  v3.2.0             ║
+  ║           UFW Manager  v3.3.0             ║
   ║        Управление брандмауэром VPS        ║
   ╚════════════════════════════════════════════╝
 
