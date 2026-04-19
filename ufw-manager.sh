@@ -274,35 +274,66 @@ screen_remove_port() {
     "$UFW_BIN" status numbered 2>&1 | sed 's/^/  /'
     echo ""
 
-    local rule_num
-    read -rp "  Номер правила для удаления (или 'q' для отмены): " rule_num
-    if [[ "${rule_num,,}" == "q" || -z "$rule_num" ]]; then
+    local input
+    read -rp "  Номера правил через пробел или запятую (или 'q'): " input
+    if [[ "${input,,}" == "q" || -z "$input" ]]; then
         return
     fi
 
-    if [[ ! "$rule_num" =~ ^[0-9]+$ ]]; then
-        echo -e "\n  ${R}❌ Неверный номер.${NC}"
+    # Парсим номера: принимаем пробелы и запятые как разделители
+    local raw_nums
+    IFS=', ' read -ra raw_nums <<< "$input"
+
+    # Валидируем и собираем уникальные номера
+    local nums=()
+    for n in "${raw_nums[@]}"; do
+        [[ -z "$n" ]] && continue
+        if [[ ! "$n" =~ ^[0-9]+$ ]]; then
+            echo -e "  ${R}❌ «${n}» — не число, пропускаю.${NC}"
+            continue
+        fi
+        nums+=("$n")
+    done
+
+    if [[ ${#nums[@]} -eq 0 ]]; then
+        echo -e "\n  ${R}❌ Не указано ни одного корректного номера.${NC}"
         pause; return
     fi
 
-    # Сохраняем порт и протокол до удаления — для очистки IP-привязки
-    local rule_line port proto
-    rule_line=$("$UFW_BIN" status numbered 2>/dev/null | grep -P "^\[ *${rule_num}\]") || rule_line=""
-    port=$(echo "$rule_line" | grep -oP '\b\d{1,5}(?=/(?:tcp|udp))' 2>/dev/null | head -1) || port=""
-    proto=$(echo "$rule_line" | grep -oP '(?<=\d/)(tcp|udp)' 2>/dev/null | head -1) || proto=""
+    # Сортируем по убыванию — удаление с конца, чтобы номера не сдвигались
+    IFS=$'\n' nums=($(printf '%s\n' "${nums[@]}" | sort -rnu))
+    unset IFS
 
-    local del_out del_exit
-    del_exit=0
-    del_out=$(echo "y" | "$UFW_BIN" delete "$rule_num" 2>&1) || del_exit=$?
-    echo "$del_out" | sed 's/^/  /'
+    echo ""
+    local ok=0 fail=0
 
-    if [[ $del_exit -eq 0 ]]; then
-        if [[ -n "$port" ]]; then
-            remove_ip_binding "$port" "$proto"
+    for rule_num in "${nums[@]}"; do
+        local rule_line port proto
+        rule_line=$("$UFW_BIN" status numbered 2>/dev/null | grep -P "^\[ *${rule_num}\]") || rule_line=""
+        port=$(echo "$rule_line" | grep -oP '\b\d{1,5}(?=/(?:tcp|udp))' 2>/dev/null | head -1) || port=""
+        proto=$(echo "$rule_line" | grep -oP '(?<=\d/)(tcp|udp)' 2>/dev/null | head -1) || proto=""
+
+        local del_out del_exit
+        del_exit=0
+        del_out=$(echo "y" | "$UFW_BIN" delete "$rule_num" 2>&1) || del_exit=$?
+
+        if [[ $del_exit -eq 0 ]]; then
+            [[ -n "$port" ]] && remove_ip_binding "$port" "$proto"
+            echo -e "  ${G}✅ Правило #${rule_num} удалено.${NC}"
+            (( ok++ ))
+        else
+            echo -e "  ${R}❌ Правило #${rule_num}: не удалось удалить.${NC}"
+            (( fail++ ))
         fi
-        echo -e "\n  ${G}✅ Правило #${rule_num} удалено.${NC}"
+    done
+
+    echo ""
+    if [[ $ok -gt 0 && $fail -eq 0 ]]; then
+        echo -e "  ${G}Итого удалено: ${ok}.${NC}"
+    elif [[ $ok -gt 0 ]]; then
+        echo -e "  ${Y}Удалено: ${ok}, ошибок: ${fail}.${NC}"
     else
-        echo -e "\n  ${R}❌ Не удалось удалить правило.${NC}"
+        echo -e "  ${R}Не удалось удалить ни одного правила.${NC}"
     fi
 
     pause
