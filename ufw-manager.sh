@@ -118,6 +118,11 @@ screen_rules() {
     fi
 
     while IFS= read -r line; do
+        # Пропускаем IPv6-правила
+        if [[ $line == *"(v6)"* ]]; then
+            continue
+        fi
+
         if [[ $line =~ ^\[([[:space:]]*[0-9]+)\] ]]; then
             # Разбиваем строку на часть до # и сам комментарий
             local main_part comment_part
@@ -214,6 +219,7 @@ screen_add_port() {
     local ufw_out ufw_exit
     ufw_exit=0
 
+    # Только IPv4-правила (from 0.0.0.0/0 исключает создание v6-правил)
     # Описание передаётся как нативный комментарий UFW — виден в ufw status
     if [[ "$bind_ip" != "any" ]]; then
         if [[ "$proto" == "any" ]]; then
@@ -223,9 +229,9 @@ screen_add_port() {
         fi
     else
         if [[ "$proto" == "any" ]]; then
-            ufw_out=$("$UFW_BIN" allow "$port" comment "$description" 2>&1) || ufw_exit=$?
+            ufw_out=$("$UFW_BIN" allow from 0.0.0.0/0 to any port "$port" comment "$description" 2>&1) || ufw_exit=$?
         else
-            ufw_out=$("$UFW_BIN" allow "${port}/${proto}" comment "$description" 2>&1) || ufw_exit=$?
+            ufw_out=$("$UFW_BIN" allow from 0.0.0.0/0 to any port "$port" proto "$proto" comment "$description" 2>&1) || ufw_exit=$?
         fi
     fi
 
@@ -254,7 +260,7 @@ screen_remove_port() {
     header
     echo -e "  ${W}🗑️  Удалить правило${NC}\n"
 
-    "$UFW_BIN" status numbered 2>&1 | sed 's/^/  /'
+    "$UFW_BIN" status numbered 2>&1 | grep -v "(v6)" | sed 's/^/  /'
     echo ""
 
     local rule_num
