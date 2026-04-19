@@ -6,7 +6,12 @@ UFW_BIN="/usr/sbin/ufw"
 INSTALL_BIN="/usr/local/bin/ufw"
 OPT_DIR="/opt/ufw-manager"
 DESC_FILE="$OPT_DIR/descriptions.conf"
-VERSION="2.0.1"
+BLOCKED_FILE="$OPT_DIR/blocked_ips.conf"
+PROFILES_DIR="$OPT_DIR/profiles"
+EXPORTS_DIR="$OPT_DIR/exports"
+UPDATE_CACHE="$OPT_DIR/.update_check"
+SCRIPT_REPO_URL="https://raw.githubusercontent.com/latham5656/ufw-manager/refs/heads/master/ufw-manager.sh"
+VERSION="3.0.0"
 
 # ── Цвета ─────────────────────────────────────────────────────────────────────
 R='\033[0;31m'
@@ -35,8 +40,8 @@ check_ufw_installed() {
 }
 
 init_opt_dir() {
-    mkdir -p "$OPT_DIR"
-    touch "$DESC_FILE"
+    mkdir -p "$OPT_DIR" "$PROFILES_DIR" "$EXPORTS_DIR"
+    touch "$DESC_FILE" "$BLOCKED_FILE"
 }
 
 pause() {
@@ -44,9 +49,43 @@ pause() {
     read -rp "  Нажмите Enter для продолжения..."
 }
 
-# ── IP-привязки (хранятся отдельно, т.к. в ufw нет нативного поля) ────────────
-# Формат: PORT/PROTO:IP
+# ── Валидация ─────────────────────────────────────────────────────────────────
+validate_ip() {
+    local ip=$1
+    [[ -z "$ip" ]] && return 1
+    local addr="${ip%%/*}"
+    local cidr="${ip##*/}"
 
+    if [[ ! "$addr" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then return 1; fi
+
+    local IFS='.'
+    local -a octets
+    read -ra octets <<< "$addr"
+    for oct in "${octets[@]}"; do
+        [[ "$oct" -gt 255 ]] && return 1
+    done
+
+    if [[ "$ip" == */* ]]; then
+        [[ ! "$cidr" =~ ^[0-9]+$ || "$cidr" -gt 32 ]] && return 1
+    fi
+    return 0
+}
+
+validate_port() {
+    local port=$1
+    if [[ "$port" =~ ^[0-9]+:[0-9]+$ ]]; then
+        local p1="${port%%:*}" p2="${port##*:}"
+        [[ "$p1" -lt 1 || "$p1" -gt 65535 || "$p2" -lt 1 || "$p2" -gt 65535 || "$p1" -ge "$p2" ]] && return 1
+        return 0
+    fi
+    if [[ "$port" =~ ^[0-9]+$ ]]; then
+        [[ "$port" -lt 1 || "$port" -gt 65535 ]] && return 1
+        return 0
+    fi
+    return 1
+}
+
+# ── IP-привязки ───────────────────────────────────────────────────────────────
 save_ip_binding() {
     local port=$1 proto=$2 ip=$3
     local key="${port}/${proto}"
@@ -56,9 +95,7 @@ save_ip_binding() {
 
 get_ip_binding() {
     local port=$1 proto=$2
-    local key="${port}/${proto}"
-    grep "^${key}:" "$DESC_FILE" 2>/dev/null | cut -d':' -f2 | head -1
-    return 0
+    grep "^${port}/${proto}:" "$DESC_FILE" 2>/dev/null | cut -d':' -f2 | head -1
 }
 
 remove_ip_binding() {
@@ -68,7 +105,41 @@ remove_ip_binding() {
     else
         sed -i "\|^${port}/|d" "$DESC_FILE" 2>/dev/null
     fi
-    return 0
+}
+
+# ── Заблокированные IP ────────────────────────────────────────────────────────
+save_blocked_ip() {
+    local ip=$1 reason=$2
+    sed -i "\|^${ip}|d" "$BLOCKED_FILE" 2>/dev/null
+    echo "${ip}|${reason}|$(date '+%Y-%m-%d %H:%M')" >> "$BLOCKED_FILE"
+}
+
+remove_blocked_ip() {
+    sed -i "\|^${1}|d" "$BLOCKED_FILE" 2>/dev/null
+}
+
+# ── Авто-проверка обновлений (кеш 24ч, фоновый запрос) ───────────────────────
+UPDATE_NOTIFY=""
+
+check_for_updates() {
+    # Читаем кеш
+    if [[ -f "$UPDATE_CACHE" ]]; then
+        local cached_ver
+        cached_ver=$(tail -1 "$UPDATE_CACHE" 2>/dev/null)
+        [[ -n "$cached_ver" && "$cached_ver" != "$VERSION" ]] && UPDATE_NOTIFY="$cached_ver"
+    fi
+    # Фоновое обновление кеша раз в 24ч
+    (
+        command -v curl &>/dev/null || exit 0
+        local now last=0
+        now=$(date +%s)
+        [[ -f "$UPDATE_CACHE" ]] && last=$(head -1 "$UPDATE_CACHE" 2>/dev/null)
+        (( now - last < 86400 )) && exit 0
+        local ver
+        ver=$(curl -fsSL --max-time 4 "$SCRIPT_REPO_URL" 2>/dev/null \
+            | head -n 20 | grep -m1 "^VERSION=" | cut -d'"' -f2)
+        [[ -n "$ver" ]] && printf '%s\n%s\n' "$now" "$ver" > "$UPDATE_CACHE"
+    ) &>/dev/null &
 }
 
 # ── UFW обёртки ───────────────────────────────────────────────────────────────
@@ -80,7 +151,7 @@ is_active() {
     ufw_status_line | grep -q "^Status: active$"
 }
 
-# ── Экраны ────────────────────────────────────────────────────────────────────
+# ── Шапка ─────────────────────────────────────────────────────────────────────
 header() {
     clear
     local inner=44
@@ -100,14 +171,20 @@ header() {
     printf "  ║%${sl}s%s%${sr}s║\n" "" "$subtitle" ""
     echo  "  ╚${border}╝"
     echo -e "${NC}"
+
     if is_active; then
         echo -e "  Брандмауэр: ${G}🟢 Активен${NC}"
     else
         echo -e "  Брандмауэр: ${R}🔴 Отключён${NC}"
     fi
+
+    [[ -n "$UPDATE_NOTIFY" ]] && \
+        echo -e "  ${Y}⬆️  Доступна новая версия v${UPDATE_NOTIFY}${NC}  ${D}curl ... | sudo bash${NC}"
+
     echo ""
 }
 
+# ── Статус ────────────────────────────────────────────────────────────────────
 screen_status() {
     header
     echo -e "  ${W}📊 Подробный статус UFW${NC}\n"
@@ -115,6 +192,7 @@ screen_status() {
     pause
 }
 
+# ── Список правил с поиском и подсветкой ─────────────────────────────────────
 screen_rules() {
     header
     echo -e "  ${W}📋 Список правил с описаниями${NC}\n"
@@ -124,47 +202,57 @@ screen_rules() {
 
     if echo "$numbered" | grep -q "Status: inactive"; then
         echo -e "  ${Y}⚠️  UFW отключён — правила недоступны.${NC}"
-        pause
-        return
+        pause; return
     fi
 
+    read -rp "  Фильтр по порту/IP/описанию (Enter — все): " filter
+    echo ""
+
+    local found=0
     while IFS= read -r line; do
-        # Пропускаем IPv6-правила
-        if [[ $line == *"(v6)"* ]]; then
-            continue
-        fi
+        [[ $line == *"(v6)"* ]] && continue
 
         if [[ $line =~ ^\[([[:space:]]*[0-9]+)\] ]]; then
-            # Разбиваем строку на часть до # и сам комментарий
-            local main_part comment_part
+            if [[ -n "$filter" ]] && ! echo "$line" | grep -qi "$filter"; then
+                continue
+            fi
+            found=1
+
             if [[ $line == *'#'* ]]; then
-                main_part="${line%%#*}"
-                comment_part="${line#*#}"
+                local main_part="${line%%#*}"
+                local comment_part="${line#*#}"
                 echo -e "  ${W}${main_part}${NC}${Y}#${comment_part}${NC}"
+            elif [[ $line == *"DENY"* || $line == *"REJECT"* ]]; then
+                echo -e "  ${R}${line}${NC}"
+            elif [[ $line == *"ALLOW"* ]]; then
+                echo -e "  ${G}${line}${NC}"
             else
                 echo -e "  ${W}${line}${NC}"
             fi
 
-            # Показываем IP-привязку из нашего файла (если есть)
-            local port proto ip_binding
+            local port proto
             port=$(echo "$line" | grep -oP '\b\d{1,5}(?=/(?:tcp|udp))' 2>/dev/null | head -1) || port=""
-            proto=$(echo "$line" | grep -oP '(?<=\d/)(tcp|udp)' 2>/dev/null | head -1) || proto=""
+            proto=$(echo "$line" | grep -oP '(?<=\d/)(tcp|udp)' 2>/dev/null | head -1) || proto="any"
             [[ -z "$proto" ]] && proto="any"
 
             if [[ -n "$port" ]]; then
+                local ip_binding
                 ip_binding=$(get_ip_binding "$port" "$proto")
-                if [[ -n "$ip_binding" && "$ip_binding" != "any" ]]; then
+                [[ -n "$ip_binding" && "$ip_binding" != "any" ]] && \
                     echo -e "  ${D}    🔒 только с IP:${NC} ${B}${ip_binding}${NC}"
-                fi
             fi
         else
-            echo "  $line"
+            [[ -z "$filter" ]] && echo "  $line"
         fi
     done <<< "$numbered"
+
+    [[ $found -eq 0 && -n "$filter" ]] && \
+        echo -e "  ${Y}Ничего не найдено по запросу «${filter}»${NC}"
 
     pause
 }
 
+# ── Включить ──────────────────────────────────────────────────────────────────
 screen_enable() {
     header
     echo -e "  ${Y}⚡ Включаю UFW...${NC}\n"
@@ -173,6 +261,7 @@ screen_enable() {
     pause
 }
 
+# ── Отключить ─────────────────────────────────────────────────────────────────
 screen_disable() {
     header
     echo -e "  ${Y}⚠️  Вы уверены, что хотите отключить брандмауэр? [y/N]${NC} "
@@ -186,19 +275,21 @@ screen_disable() {
     pause
 }
 
+# ── Добавить правило ──────────────────────────────────────────────────────────
 screen_add_port() {
     header
     echo -e "  ${W}➕ Добавить правило для порта${NC}\n"
 
-    # ── Порт ──
     local port
     read -rp "  Номер порта (или диапазон, напр. 8000:9000): " port
     if [[ -z "$port" ]]; then
-        echo -e "\n  ${R}❌ Порт не может быть пустым.${NC}"
+        echo -e "\n  ${R}❌ Порт не может быть пустым.${NC}"; pause; return
+    fi
+    if ! validate_port "$port"; then
+        echo -e "\n  ${R}❌ Некорректный порт «${port}». Укажите 1-65535 или диапазон 8000:9000.${NC}"
         pause; return
     fi
 
-    # ── Протокол ──
     echo ""
     echo -e "  Протокол:"
     echo -e "    ${W}1)${NC} TCP"
@@ -212,13 +303,14 @@ screen_add_port() {
         *) proto="any" ;;
     esac
 
-    # ── Привязка к IP ──
     echo ""
     local bind_ip
     read -rp "  Привязать к IP-адресу? (оставьте пустым — для всех): " bind_ip
+    if [[ -n "$bind_ip" ]] && ! validate_ip "$bind_ip"; then
+        echo -e "\n  ${R}❌ Некорректный IP-адрес «${bind_ip}»${NC}"; pause; return
+    fi
     bind_ip="${bind_ip:-any}"
 
-    # ── Описание ──
     echo ""
     local description
     read -rp "  Описание (напр. 'Nginx HTTPS'): " description
@@ -227,11 +319,8 @@ screen_add_port() {
     echo ""
     echo -e "  ${Y}⏳ Применяю правило...${NC}"
 
-    local ufw_out ufw_exit
-    ufw_exit=0
+    local ufw_out ufw_exit=0
 
-    # Только IPv4-правила (from 0.0.0.0/0 исключает создание v6-правил)
-    # Описание передаётся как нативный комментарий UFW — виден в ufw status
     if [[ "$bind_ip" != "any" ]]; then
         if [[ "$proto" == "any" ]]; then
             ufw_out=$("$UFW_BIN" allow from "$bind_ip" to any port "$port" comment "$description" 2>&1) || ufw_exit=$?
@@ -249,17 +338,12 @@ screen_add_port() {
     echo "$ufw_out" | sed 's/^/  /'
 
     if [[ $ufw_exit -eq 0 ]]; then
-        # IP-привязку сохраняем отдельно (UFW не хранит её в виде метаданных)
-        if [[ "$bind_ip" != "any" ]]; then
-            save_ip_binding "$port" "$proto" "$bind_ip"
-        fi
+        [[ "$bind_ip" != "any" ]] && save_ip_binding "$port" "$proto" "$bind_ip"
         echo -e "\n  ${G}✅ Правило добавлено:${NC}"
         echo -e "    Порт      : ${W}${port}${NC} (${proto})"
-        if [[ "$bind_ip" != "any" ]]; then
-            echo -e "    IP-привязка: ${B}${bind_ip}${NC}"
-        fi
+        [[ "$bind_ip" != "any" ]] && echo -e "    IP-привязка: ${B}${bind_ip}${NC}"
         echo -e "    Описание  : ${Y}${description}${NC}"
-        echo -e "\n  ${D}Описание сохранено в UFW и видно в: sudo ufw status numbered${NC}"
+        echo -e "\n  ${D}Описание сохранено в UFW: sudo ufw status numbered${NC}"
     else
         echo -e "\n  ${R}❌ Не удалось добавить правило. Проверьте введённые данные.${NC}"
     fi
@@ -267,6 +351,87 @@ screen_add_port() {
     pause
 }
 
+# ── Блокировка IP ─────────────────────────────────────────────────────────────
+screen_block_ip() {
+    while true; do
+        header
+        echo -e "  ${W}🚫 Блокировка IP-адресов${NC}\n"
+
+        if [[ -s "$BLOCKED_FILE" ]]; then
+            echo -e "  ${D}Активные блокировки:${NC}"
+            while IFS='|' read -r ip reason ts; do
+                echo -e "    ${R}🔴 ${W}${ip}${NC}  ${D}— ${reason} (${ts})${NC}"
+            done < "$BLOCKED_FILE"
+            echo ""
+        else
+            echo -e "  ${D}Активных блокировок нет.${NC}\n"
+        fi
+
+        echo -e "  ${W}1)${NC} Заблокировать IP"
+        echo -e "  ${W}2)${NC} Разблокировать IP"
+        echo -e "  ${W}0)${NC} Назад"
+        echo ""
+        read -rp "  Выбор: " action
+
+        case "$action" in
+            1)
+                echo ""
+                local ip
+                read -rp "  IP для блокировки (напр. 1.2.3.4 или 1.2.3.0/24): " ip
+                if [[ -z "$ip" ]]; then
+                    echo -e "  ${R}❌ IP не может быть пустым.${NC}"; sleep 1; continue
+                fi
+                if ! validate_ip "$ip"; then
+                    echo -e "  ${R}❌ Некорректный IP «${ip}»${NC}"; sleep 1; continue
+                fi
+                echo ""
+                local reason
+                read -rp "  Причина блокировки: " reason
+                reason="${reason:-Без причины}"
+
+                local out exit_code=0
+                out=$("$UFW_BIN" insert 1 deny from "$ip" to any 2>&1) || exit_code=$?
+                echo "$out" | sed 's/^/  /'
+
+                if [[ $exit_code -eq 0 ]]; then
+                    save_blocked_ip "$ip" "$reason"
+                    echo -e "\n  ${G}✅ IP ${ip} заблокирован.${NC}"
+                else
+                    echo -e "\n  ${R}❌ Не удалось заблокировать IP.${NC}"
+                fi
+                sleep 1
+                ;;
+            2)
+                echo ""
+                if [[ ! -s "$BLOCKED_FILE" ]]; then
+                    echo -e "  ${Y}Нет заблокированных IP.${NC}"; sleep 1; continue
+                fi
+                local ip
+                read -rp "  IP для разблокировки: " ip
+                if [[ -z "$ip" ]]; then sleep 1; continue; fi
+                if ! validate_ip "$ip"; then
+                    echo -e "  ${R}❌ Некорректный IP «${ip}»${NC}"; sleep 1; continue
+                fi
+
+                local out exit_code=0
+                out=$(echo "y" | "$UFW_BIN" delete deny from "$ip" to any 2>&1) || exit_code=$?
+                echo "$out" | sed 's/^/  /'
+
+                if [[ $exit_code -eq 0 ]]; then
+                    remove_blocked_ip "$ip"
+                    echo -e "\n  ${G}✅ IP ${ip} разблокирован.${NC}"
+                else
+                    echo -e "\n  ${R}❌ Не удалось разблокировать. Возможно, правило не найдено.${NC}"
+                fi
+                sleep 1
+                ;;
+            0|"") return ;;
+            *) echo -e "\n  ${R}❌ Неверный выбор.${NC}"; sleep 0.5 ;;
+        esac
+    done
+}
+
+# ── Удалить правила ───────────────────────────────────────────────────────────
 screen_remove_port() {
     header
     echo -e "  ${W}🗑️  Удалить правило${NC}\n"
@@ -276,31 +441,24 @@ screen_remove_port() {
 
     local input
     read -rp "  Номера правил через пробел или запятую (или 'q'): " input
-    if [[ "${input,,}" == "q" || -z "$input" ]]; then
-        return
-    fi
+    if [[ "${input,,}" == "q" || -z "$input" ]]; then return; fi
 
-    # Парсим номера: принимаем пробелы и запятые как разделители
     local raw_nums
     IFS=', ' read -ra raw_nums <<< "$input"
 
-    # Валидируем и собираем уникальные номера
     local nums=()
     for n in "${raw_nums[@]}"; do
         [[ -z "$n" ]] && continue
         if [[ ! "$n" =~ ^[0-9]+$ ]]; then
-            echo -e "  ${R}❌ «${n}» — не число, пропускаю.${NC}"
-            continue
+            echo -e "  ${R}❌ «${n}» — не число, пропускаю.${NC}"; continue
         fi
         nums+=("$n")
     done
 
     if [[ ${#nums[@]} -eq 0 ]]; then
-        echo -e "\n  ${R}❌ Не указано ни одного корректного номера.${NC}"
-        pause; return
+        echo -e "\n  ${R}❌ Не указано ни одного корректного номера.${NC}"; pause; return
     fi
 
-    # Сортируем по убыванию — удаление с конца, чтобы номера не сдвигались
     IFS=$'\n' nums=($(printf '%s\n' "${nums[@]}" | sort -rnu))
     unset IFS
 
@@ -308,14 +466,14 @@ screen_remove_port() {
     local ok=0 fail=0
 
     for rule_num in "${nums[@]}"; do
-        local rule_line port proto
+        local rule_line
         rule_line=$("$UFW_BIN" status numbered 2>/dev/null | grep -P "^\[ *${rule_num}\]") || rule_line=""
+        local port proto
         port=$(echo "$rule_line" | grep -oP '\b\d{1,5}(?=/(?:tcp|udp))' 2>/dev/null | head -1) || port=""
         proto=$(echo "$rule_line" | grep -oP '(?<=\d/)(tcp|udp)' 2>/dev/null | head -1) || proto=""
 
-        local del_out del_exit
-        del_exit=0
-        del_out=$(echo "y" | "$UFW_BIN" delete "$rule_num" 2>&1) || del_exit=$?
+        local del_exit=0
+        echo "y" | "$UFW_BIN" delete "$rule_num" &>/dev/null || del_exit=$?
 
         if [[ $del_exit -eq 0 ]]; then
             [[ -n "$port" ]] && remove_ip_binding "$port" "$proto"
@@ -339,6 +497,7 @@ screen_remove_port() {
     pause
 }
 
+# ── Перезагрузить ─────────────────────────────────────────────────────────────
 screen_reload() {
     header
     echo -e "  ${Y}🔄 Перезагружаю UFW...${NC}\n"
@@ -347,15 +506,278 @@ screen_reload() {
     pause
 }
 
+# ── Профили правил ────────────────────────────────────────────────────────────
+screen_profiles() {
+    while true; do
+        header
+        echo -e "  ${W}📁 Профили правил${NC}\n"
+
+        local profiles=()
+        while IFS= read -r f; do
+            profiles+=("$f")
+        done < <(find "$PROFILES_DIR" -maxdepth 1 -name "*.meta" 2>/dev/null | sort)
+
+        if [[ ${#profiles[@]} -gt 0 ]]; then
+            echo -e "  ${D}Сохранённые профили:${NC}"
+            for f in "${profiles[@]}"; do
+                local name
+                name=$(basename "$f" .meta)
+                local desc ts
+                desc=$(grep "^desc=" "$f" | cut -d'=' -f2-)
+                ts=$(grep "^date=" "$f" | cut -d'=' -f2-)
+                echo -e "    ${W}• ${name}${NC}  ${D}— ${desc} (${ts})${NC}"
+            done
+            echo ""
+        else
+            echo -e "  ${D}Профилей нет.${NC}\n"
+        fi
+
+        echo -e "  ${W}1)${NC} Сохранить текущие правила как профиль"
+        [[ ${#profiles[@]} -gt 0 ]] && echo -e "  ${W}2)${NC} Загрузить профиль"
+        [[ ${#profiles[@]} -gt 0 ]] && echo -e "  ${W}3)${NC} Удалить профиль"
+        echo -e "  ${W}0)${NC} Назад"
+        echo ""
+        read -rp "  Выбор: " action
+
+        case "$action" in
+            1)
+                echo ""
+                local name
+                read -rp "  Имя профиля (без пробелов): " name
+                name="${name// /_}"
+                if [[ -z "$name" || ! "$name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+                    echo -e "  ${R}❌ Некорректное имя. Используйте буквы, цифры, _ и -.${NC}"
+                    sleep 1; continue
+                fi
+                local desc
+                read -rp "  Описание профиля: " desc
+                desc="${desc:-Без описания}"
+
+                if [[ ! -f /etc/ufw/user.rules ]]; then
+                    echo -e "  ${R}❌ Файл /etc/ufw/user.rules не найден.${NC}"; sleep 1; continue
+                fi
+
+                cp /etc/ufw/user.rules  "$PROFILES_DIR/${name}.rules"  2>/dev/null
+                cp /etc/ufw/user6.rules "$PROFILES_DIR/${name}.rules6" 2>/dev/null
+                cp "$DESC_FILE"         "$PROFILES_DIR/${name}.desc"   2>/dev/null
+                {
+                    echo "desc=${desc}"
+                    echo "date=$(date '+%Y-%m-%d %H:%M')"
+                } > "$PROFILES_DIR/${name}.meta"
+
+                echo -e "\n  ${G}✅ Профиль «${name}» сохранён.${NC}"
+                sleep 1
+                ;;
+            2)
+                [[ ${#profiles[@]} -eq 0 ]] && continue
+                echo ""
+                local name
+                read -rp "  Имя профиля для загрузки: " name
+                if [[ ! -f "$PROFILES_DIR/${name}.meta" ]]; then
+                    echo -e "  ${R}❌ Профиль «${name}» не найден.${NC}"; sleep 1; continue
+                fi
+                echo -e "  ${Y}⚠️  Текущие правила будут заменены. Введите ${W}ДА${Y}:${NC} "
+                local confirm
+                read -rp "  " confirm
+                if [[ "$confirm" == "ДА" ]]; then
+                    cp "$PROFILES_DIR/${name}.rules"  /etc/ufw/user.rules  2>/dev/null
+                    cp "$PROFILES_DIR/${name}.rules6" /etc/ufw/user6.rules 2>/dev/null
+                    cp "$PROFILES_DIR/${name}.desc"   "$DESC_FILE"         2>/dev/null
+                    "$UFW_BIN" reload 2>&1 | sed 's/^/  /'
+                    echo -e "  ${G}✅ Профиль «${name}» загружен.${NC}"
+                else
+                    echo -e "  ${D}Отменено.${NC}"
+                fi
+                sleep 1
+                ;;
+            3)
+                [[ ${#profiles[@]} -eq 0 ]] && continue
+                echo ""
+                local name
+                read -rp "  Имя профиля для удаления: " name
+                if [[ -f "$PROFILES_DIR/${name}.meta" ]]; then
+                    rm -f "$PROFILES_DIR/${name}".{rules,rules6,desc,meta}
+                    echo -e "  ${G}✅ Профиль «${name}» удалён.${NC}"
+                else
+                    echo -e "  ${R}❌ Профиль «${name}» не найден.${NC}"
+                fi
+                sleep 1
+                ;;
+            0|"") return ;;
+            *) sleep 0.4 ;;
+        esac
+    done
+}
+
+# ── Экспорт / Импорт ──────────────────────────────────────────────────────────
+screen_export_import() {
+    while true; do
+        header
+        echo -e "  ${W}💾 Экспорт / Импорт правил${NC}\n"
+
+        echo -e "  ${W}1)${NC} Экспортировать правила в .sh файл ${D}(для переноса на другой сервер)${NC}"
+        echo -e "  ${W}2)${NC} Импортировать из .sh файла"
+        echo -e "  ${W}0)${NC} Назад"
+        echo ""
+        read -rp "  Выбор: " action
+
+        case "$action" in
+            1)
+                local filename="${EXPORTS_DIR}/ufw-export-$(date +%Y%m%d-%H%M%S).sh"
+                {
+                    echo "#!/bin/bash"
+                    echo "# UFW Manager — экспорт правил"
+                    echo "# Дата: $(date '+%Y-%m-%d %H:%M:%S')"
+                    echo "# Экспортировано с: $(hostname 2>/dev/null || echo unknown)"
+                    echo "# Версия UFW Manager: ${VERSION}"
+                    echo ""
+                    echo "UFW=/usr/sbin/ufw"
+                    echo ""
+                    echo "# Применить правила (запустите от root: sudo bash <файл>)"
+                    "$UFW_BIN" status numbered 2>/dev/null \
+                        | grep -P "^\[" | grep -v "(v6)" \
+                        | while IFS= read -r line; do
+                            local port proto comment action_word
+                            port=$(echo "$line"    | grep -oP '\b\d{1,5}(?=/(?:tcp|udp))' | head -1)
+                            proto=$(echo "$line"   | grep -oP '(?<=\d/)(tcp|udp)' | head -1)
+                            comment=$(echo "$line" | grep -oP '(?<=#).+' | sed 's/^ *//')
+
+                            if [[ $line == *"DENY"* || $line == *"REJECT"* ]]; then
+                                action_word="deny"
+                            else
+                                action_word="allow"
+                            fi
+
+                            if [[ -n "$port" && -n "$proto" ]]; then
+                                if [[ -n "$comment" ]]; then
+                                    echo "\$UFW $action_word from 0.0.0.0/0 to any port $port proto $proto comment \"$comment\""
+                                else
+                                    echo "\$UFW $action_word $port/$proto"
+                                fi
+                            elif [[ $line == *"DENY"* ]]; then
+                                local from_ip
+                                from_ip=$(echo "$line" | grep -oP '\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(/\d+)?' | head -1)
+                                [[ -n "$from_ip" ]] && echo "\$UFW deny from $from_ip to any"
+                            fi
+                        done
+                } > "$filename"
+                chmod +x "$filename"
+
+                echo -e "\n  ${G}✅ Экспорт сохранён:${NC}"
+                echo -e "  ${W}${filename}${NC}\n"
+                echo -e "  ${D}Перенос на другой сервер:${NC}"
+                echo -e "  ${W}scp ${filename} user@server:/tmp/ && ssh user@server sudo bash /tmp/$(basename "$filename")${NC}"
+                pause
+                ;;
+            2)
+                echo ""
+                local files=()
+                while IFS= read -r f; do files+=("$f"); done \
+                    < <(find "$EXPORTS_DIR" -maxdepth 1 -name "*.sh" 2>/dev/null | sort -r)
+
+                if [[ ${#files[@]} -gt 0 ]]; then
+                    echo -e "  ${D}Файлы в ${EXPORTS_DIR}/:${NC}"
+                    for f in "${files[@]}"; do
+                        echo -e "    ${W}•${NC} $(basename "$f")"
+                    done
+                    echo ""
+                fi
+
+                local fname
+                read -rp "  Имя файла или полный путь: " fname
+                [[ "$fname" != /* ]] && fname="$EXPORTS_DIR/$fname"
+
+                if [[ ! -f "$fname" ]]; then
+                    echo -e "  ${R}❌ Файл не найден: ${fname}${NC}"; pause; continue
+                fi
+
+                if ! head -1 "$fname" | grep -q '^#!.*bash'; then
+                    echo -e "  ${R}❌ Файл не является bash-скриптом.${NC}"; pause; continue
+                fi
+
+                echo -e "  ${Y}⚠️  Правила из файла будут добавлены к текущим. Введите ${W}ДА${Y}:${NC} "
+                local confirm
+                read -rp "  " confirm
+                if [[ "$confirm" == "ДА" ]]; then
+                    bash "$fname" 2>&1 | sed 's/^/  /'
+                    echo -e "\n  ${G}✅ Импорт завершён.${NC}"
+                else
+                    echo -e "  ${D}Отменено.${NC}"
+                fi
+                pause
+                ;;
+            0|"") return ;;
+            *) sleep 0.4 ;;
+        esac
+    done
+}
+
+# ── Лог брандмауэра ───────────────────────────────────────────────────────────
+screen_log() {
+    header
+    echo -e "  ${W}📜 Лог брандмауэра${NC}\n"
+
+    local log_file="/var/log/ufw.log"
+
+    if [[ ! -f "$log_file" ]]; then
+        echo -e "  ${Y}⚠️  Файл лога не найден: ${log_file}${NC}"
+        echo -e "  ${D}Включите логирование: sudo ufw logging on${NC}"
+        pause; return
+    fi
+
+    echo -e "  ${W}1)${NC} Последние 50 записей"
+    echo -e "  ${W}2)${NC} Только заблокированные ${D}(BLOCK)${NC}"
+    echo -e "  ${W}3)${NC} Поиск по IP"
+    echo -e "  ${W}4)${NC} Живой режим ${D}(Ctrl+C для выхода)${NC}"
+    echo ""
+    read -rp "  Выбор: " log_choice
+
+    colorize_log() {
+        while IFS= read -r line; do
+            if [[ $line == *"BLOCK"* ]]; then
+                echo -e "  ${R}${line}${NC}"
+            elif [[ $line == *"ALLOW"* ]]; then
+                echo -e "  ${G}${line}${NC}"
+            else
+                echo -e "  ${D}${line}${NC}"
+            fi
+        done
+    }
+
+    echo ""
+    case "$log_choice" in
+        1) tail -50 "$log_file" | colorize_log ;;
+        2) grep "BLOCK" "$log_file" | tail -50 | colorize_log ;;
+        3)
+            local search_ip
+            read -rp "  IP для поиска: " search_ip
+            echo ""
+            grep "$search_ip" "$log_file" | tail -50 | colorize_log
+            ;;
+        4)
+            echo -e "  ${D}Нажмите Ctrl+C для выхода...${NC}\n"
+            trap 'echo ""; return' INT
+            tail -f "$log_file" | colorize_log
+            trap - INT
+            return
+            ;;
+        *) echo -e "  ${R}❌ Неверный выбор.${NC}" ;;
+    esac
+
+    pause
+}
+
+# ── Сброс ─────────────────────────────────────────────────────────────────────
 screen_reset() {
     header
     echo -e "  ${R}⚠️  ВНИМАНИЕ: Все правила UFW будут сброшены до заводских!${NC}"
-    echo -e "  Введите ${W}СБРОС${NC} для подтверждения, или что-угодно для отмены:\n"
+    echo -e "  Введите ${W}СБРОС${NC} для подтверждения:\n"
     local confirm
     read -rp "  " confirm
     if [[ "$confirm" == "СБРОС" ]]; then
         echo "y" | "$UFW_BIN" reset 2>&1 | sed 's/^/  /'
         > "$DESC_FILE"
+        > "$BLOCKED_FILE"
         echo -e "\n  ${G}✅ UFW сброшен до настроек по умолчанию.${NC}"
     else
         echo -e "\n  ${D}Отменено.${NC}"
@@ -363,6 +785,7 @@ screen_reset() {
     pause
 }
 
+# ── Удалить менеджер ──────────────────────────────────────────────────────────
 screen_uninstall() {
     header
     echo -e "  ${R}⚠️  Удалить UFW Manager из системы?${NC}\n"
@@ -389,31 +812,40 @@ screen_uninstall() {
 main_menu() {
     while true; do
         header
-        echo -e "  ${W}1)${NC} 📊 Статус брандмауэра"
-        echo -e "  ${W}2)${NC} 📋 Список правил с описаниями"
-        echo -e "  ${W}3)${NC} ✅ Включить UFW"
-        echo -e "  ${W}4)${NC} ⛔ Отключить UFW"
+        echo -e "  ${W}1)${NC}  📊 Статус брандмауэра"
+        echo -e "  ${W}2)${NC}  📋 Список правил с описаниями"
+        echo -e "  ${W}3)${NC}  ✅ Включить UFW"
+        echo -e "  ${W}4)${NC}  ⛔ Отключить UFW"
         echo -e "  ─────────────────────────────────────"
-        echo -e "  ${W}5)${NC} ➕ Добавить правило (порт + описание + IP)"
-        echo -e "  ${W}6)${NC} 🗑️  Удалить правила ${D}(один или несколько через пробел/запятую)${NC}"
-        echo -e "  ${W}7)${NC} 🔄 Перезагрузить UFW"
+        echo -e "  ${W}5)${NC}  ➕ Добавить правило ${D}(порт + IP + описание)${NC}"
+        echo -e "  ${W}6)${NC}  🚫 Заблокировать / разблокировать IP"
+        echo -e "  ${W}7)${NC}  🗑️  Удалить правила ${D}(один или несколько)${NC}"
+        echo -e "  ${W}8)${NC}  🔄 Перезагрузить UFW"
         echo -e "  ─────────────────────────────────────"
-        echo -e "  ${W}8)${NC} ${R}💣 Сбросить все правила${NC}"
-        echo -e "  ${W}9)${NC} ${R}🗑️  Удалить UFW Manager${NC}"
-        echo -e "  ${W}0)${NC} 🚪 Выход"
+        echo -e "  ${W}9)${NC}  📁 Профили правил"
+        echo -e "  ${W}10)${NC} 💾 Экспорт / Импорт правил"
+        echo -e "  ${W}11)${NC} 📜 Лог брандмауэра"
+        echo -e "  ─────────────────────────────────────"
+        echo -e "  ${W}12)${NC} ${R}💣 Сбросить все правила${NC}"
+        echo -e "  ${W}13)${NC} ${R}🗑️  Удалить UFW Manager${NC}"
+        echo -e "  ${W}0)${NC}  🚪 Выход"
         echo ""
         read -rp "  Выберите пункт: " choice
 
         case "$choice" in
-            1) screen_status ;;
-            2) screen_rules ;;
-            3) screen_enable ;;
-            4) screen_disable ;;
-            5) screen_add_port ;;
-            6) screen_remove_port ;;
-            7) screen_reload ;;
-            8) screen_reset ;;
-            9) screen_uninstall ;;
+            1)  screen_status ;;
+            2)  screen_rules ;;
+            3)  screen_enable ;;
+            4)  screen_disable ;;
+            5)  screen_add_port ;;
+            6)  screen_block_ip ;;
+            7)  screen_remove_port ;;
+            8)  screen_reload ;;
+            9)  screen_profiles ;;
+            10) screen_export_import ;;
+            11) screen_log ;;
+            12) screen_reset ;;
+            13) screen_uninstall ;;
             0)
                 echo -e "\n  ${G}👋 До свидания!${NC}\n"
                 exit 0
@@ -427,7 +859,6 @@ main_menu() {
 }
 
 # ── Точка входа ───────────────────────────────────────────────────────────────
-# Если переданы аргументы — пробрасываем в системный ufw без каких-либо проверок
 if [[ $# -gt 0 ]]; then
     if [[ ! -x "$UFW_BIN" ]]; then
         echo "ufw: command not found at $UFW_BIN" >&2
@@ -439,4 +870,5 @@ fi
 check_root
 check_ufw_installed
 init_opt_dir
+check_for_updates
 main_menu
