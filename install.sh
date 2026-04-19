@@ -5,6 +5,7 @@
 #   sudo bash install.sh
 
 BASE_URL="https://raw.githubusercontent.com/latham5656/ufw-manager/refs/heads/master"
+CACHE_BUST="?t=$(date +%s)"
 OPT_DIR="/opt/ufw-manager"
 INSTALL_BIN="/usr/local/bin/ufw"
 INSTALLED_SCRIPT="$OPT_DIR/ufw-manager.sh"
@@ -81,7 +82,7 @@ if [[ -f "$LOCAL_SRC" ]]; then
 else
     MODE="remote"
     TMP_SCRIPT=$(mktemp /tmp/ufw-manager-XXXXXX.sh)
-    if ! download_file "$BASE_URL/ufw-manager.sh" "$TMP_SCRIPT" || [[ ! -s "$TMP_SCRIPT" ]]; then
+    if ! download_file "$BASE_URL/ufw-manager.sh$CACHE_BUST" "$TMP_SCRIPT" || [[ ! -s "$TMP_SCRIPT" ]]; then
         step_err "Не удалось скачать ufw-manager.sh с GitHub"
         rm -f "$TMP_SCRIPT"
         exit 1
