@@ -14,7 +14,7 @@
 [![Bash](https://img.shields.io/badge/Shell-Bash-4EAA25?style=for-the-badge&logo=gnubash&logoColor=white)](https://www.gnu.org/software/bash/)
 [![Linux](https://img.shields.io/badge/Linux-Ubuntu%20%2F%20Debian-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-2.0.0-brightgreen?style=for-the-badge)]()
+[![Version](https://img.shields.io/badge/Version-2.0.1-brightgreen?style=for-the-badge)]()
 
 </div>
 
@@ -70,7 +70,7 @@ sudo ufw
 
 ```
   ╔════════════════════════════════════════════╗
-  ║           UFW Manager  v2.0.0             ║
+  ║           UFW Manager  v2.0.1             ║
   ║        Управление брандмауэром VPS        ║
   ╚════════════════════════════════════════════╝
 
