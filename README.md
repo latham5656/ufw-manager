@@ -14,7 +14,7 @@
 [![Bash](https://img.shields.io/badge/Shell-Bash-4EAA25?style=for-the-badge&logo=gnubash&logoColor=white)](https://www.gnu.org/software/bash/)
 [![Linux](https://img.shields.io/badge/Linux-Ubuntu%20%2F%20Debian-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-3.1.0-brightgreen?style=for-the-badge)]()
+[![Version](https://img.shields.io/badge/Version-3.2.0-brightgreen?style=for-the-badge)]()
 
 </div>
 
@@ -61,7 +61,7 @@ sudo ufw
 | 📁 Профили | Сохранение и загрузка наборов правил — удобно для переключения конфигураций |
 | 💾 Экспорт / Импорт | Экспорт правил в .sh скрипт для переноса на другой сервер |
 | 📜 Лог брандмауэра | Просмотр `/var/log/ufw.log`: последние записи, только BLOCK, поиск по IP, живой режим |
-| ⬆️ Авто-обновления | Проверка новой версии раз в сутки — уведомление в шапке меню |
+| ⬆️ Обновления | Проверка раз в сутки; уведомление в шапке + пункт 14 для обновления прямо из меню |
 | 🔄 Перезагрузка | Горячая перезагрузка правил |
 | 💣 Сброс | Полный сброс до заводских настроек — требует ввода слова `СБРОС` |
 | 🔁 Совместимость | `sudo ufw status`, `sudo ufw allow 22` — всё работает как раньше |
@@ -72,7 +72,7 @@ sudo ufw
 
 ```
   ╔════════════════════════════════════════════╗
-  ║           UFW Manager  v3.1.0             ║
+  ║           UFW Manager  v3.2.0             ║
   ║        Управление брандмауэром VPS        ║
   ╚════════════════════════════════════════════╝
 

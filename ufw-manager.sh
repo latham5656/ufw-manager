@@ -11,7 +11,7 @@ PROFILES_DIR="$OPT_DIR/profiles"
 EXPORTS_DIR="$OPT_DIR/exports"
 UPDATE_CACHE="$OPT_DIR/.update_check"
 SCRIPT_REPO_URL="https://raw.githubusercontent.com/latham5656/ufw-manager/refs/heads/master/ufw-manager.sh"
-VERSION="3.1.0"
+VERSION="3.2.0"
 
 # ── Цвета ─────────────────────────────────────────────────────────────────────
 R='\033[0;31m'
@@ -127,15 +127,24 @@ remove_blocked_ip() {
     sed -i "\|^${1}|d" "$BLOCKED_FILE" 2>/dev/null
 }
 
+# ── Сравнение версий (возвращает 0 если $1 строго новее $2) ──────────────────
+is_newer_version() {
+    local a=$1 b=$2
+    [[ "$a" == "$b" ]] && return 1
+    local newest
+    newest=$(printf '%s\n%s\n' "$a" "$b" | sort -V | tail -1)
+    [[ "$newest" == "$a" ]]
+}
+
 # ── Авто-проверка обновлений (кеш 24ч, фоновый запрос) ───────────────────────
 UPDATE_NOTIFY=""
 
 check_for_updates() {
-    # Читаем кеш
+    # Читаем кеш и показываем уведомление только если remote НОВЕЕ current
     if [[ -f "$UPDATE_CACHE" ]]; then
         local cached_ver
         cached_ver=$(tail -1 "$UPDATE_CACHE" 2>/dev/null)
-        [[ -n "$cached_ver" && "$cached_ver" != "$VERSION" ]] && UPDATE_NOTIFY="$cached_ver"
+        is_newer_version "$cached_ver" "$VERSION" && UPDATE_NOTIFY="$cached_ver"
     fi
     # Фоновое обновление кеша раз в 24ч
     (
@@ -795,6 +804,74 @@ screen_log() {
     done
 }
 
+# ── Обновление ────────────────────────────────────────────────────────────────
+screen_update() {
+    local INSTALL_URL="https://raw.githubusercontent.com/latham5656/ufw-manager/refs/heads/master/install.sh"
+
+    while true; do
+        header
+        echo -e "  ${W}⬆️  Обновление UFW Manager${NC}\n"
+        echo -e "  Установленная версия: ${W}v${VERSION}${NC}"
+
+        if [[ -n "$UPDATE_NOTIFY" ]]; then
+            echo -e "  Доступная версия:     ${G}v${UPDATE_NOTIFY}${NC}\n"
+            echo -e "  ${W}1)${NC} Обновить до v${UPDATE_NOTIFY}"
+        else
+            echo -e "  ${G}✅ Установлена актуальная версия.${NC}\n"
+            echo -e "  ${W}1)${NC} Проверить наличие обновлений"
+        fi
+        echo -e "  ${W}0)${NC} Назад"
+        echo ""
+        read -rp "  Выбор: " action
+
+        case "$action" in
+            1)
+                echo ""
+                if [[ -n "$UPDATE_NOTIFY" ]]; then
+                    echo -e "  ${Y}⏳ Запускаю установщик...${NC}\n"
+                    local tmp_install
+                    tmp_install=$(mktemp /tmp/ufw-install-XXXXXX.sh)
+                    if curl -fsSL --max-time 15 "$INSTALL_URL" -o "$tmp_install" 2>/dev/null \
+                        && head -1 "$tmp_install" | grep -q '^#!.*bash'; then
+                        bash "$tmp_install"
+                        rm -f "$tmp_install"
+                        rm -f "$UPDATE_CACHE"
+                        echo -e "\n  ${G}✅ Обновление завершено. Перезапускаю меню...${NC}\n"
+                        sleep 1
+                        exec "$INSTALL_BIN"
+                    else
+                        rm -f "$tmp_install"
+                        echo -e "  ${R}❌ Не удалось скачать установщик. Проверьте подключение.${NC}"
+                        nav_prompt || return
+                    fi
+                else
+                    # Принудительная проверка — сбрасываем кеш и проверяем синхронно
+                    echo -e "  ${Y}⏳ Проверяю GitHub...${NC}"
+                    rm -f "$UPDATE_CACHE"
+                    local ver
+                    ver=$(curl -fsSL --max-time 8 "$SCRIPT_REPO_URL" 2>/dev/null \
+                        | head -n 20 | grep -m1 "^VERSION=" | cut -d'"' -f2)
+                    if [[ -n "$ver" ]]; then
+                        printf '%s\n%s\n' "$(date +%s)" "$ver" > "$UPDATE_CACHE"
+                        if is_newer_version "$ver" "$VERSION"; then
+                            UPDATE_NOTIFY="$ver"
+                            echo -e "  ${Y}Доступна новая версия: v${ver}${NC}"
+                        else
+                            UPDATE_NOTIFY=""
+                            echo -e "  ${G}✅ Установлена актуальная версия v${VERSION}.${NC}"
+                        fi
+                    else
+                        echo -e "  ${R}❌ Не удалось проверить обновления.${NC}"
+                    fi
+                    nav_prompt || return
+                fi
+                ;;
+            0|"") return ;;
+            *) sleep 0.4 ;;
+        esac
+    done
+}
+
 # ── Сброс ─────────────────────────────────────────────────────────────────────
 screen_reset() {
     while true; do
@@ -860,6 +937,11 @@ main_menu() {
         echo -e "  ─────────────────────────────────────"
         echo -e "  ${W}12)${NC} ${R}💣 Сбросить все правила${NC}"
         echo -e "  ${W}13)${NC} ${R}🗑️  Удалить UFW Manager${NC}"
+        if [[ -n "$UPDATE_NOTIFY" ]]; then
+            echo -e "  ${W}14)${NC} ${Y}⬆️  Обновить до v${UPDATE_NOTIFY}${NC}"
+        else
+            echo -e "  ${W}14)${NC} ⬆️  Обновления"
+        fi
         echo -e "  ${W}0)${NC}  🚪 Выход"
         echo ""
         read -rp "  Выберите пункт: " choice
@@ -878,6 +960,7 @@ main_menu() {
             11) screen_log ;;
             12) screen_reset ;;
             13) screen_uninstall ;;
+            14) screen_update ;;
             0)
                 echo -e "\n  ${G}👋 До свидания!${NC}\n"
                 exit 0
