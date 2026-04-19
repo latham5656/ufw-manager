@@ -20,6 +20,25 @@
 
 ---
 
+## ⚡ Быстрая установка
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/latham5656/ufw-manager/refs/heads/master/install.sh | sudo bash
+```
+
+> Или через `wget`:
+> ```bash
+> wget -qO- https://raw.githubusercontent.com/latham5656/ufw-manager/refs/heads/master/install.sh | sudo bash
+> ```
+
+После установки просто запустите:
+
+```bash
+sudo ufw
+```
+
+---
+
 ## 🔥 Что это такое?
 
 **UFW Manager** — это красивый интерактивный скрипт для управления брандмауэром на Linux VPS.  
@@ -78,12 +97,21 @@
 
 - 🐧 Linux (Ubuntu / Debian рекомендуется)
 - `ufw` установлен (`apt install ufw`)
+- `curl` или `wget` для быстрой установки
 - Bash 4+
 - Права root / sudo
 
 ---
 
-## 🚀 Установка
+## 🚀 Способы установки
+
+### Способ 1 — одна команда (рекомендуется)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/latham5656/ufw-manager/refs/heads/master/install.sh | sudo bash
+```
+
+### Способ 2 — через git clone
 
 ```bash
 git clone https://github.com/latham5656/ufw-manager.git
@@ -158,6 +186,10 @@ IP-привязки хранятся в `/opt/ufw-manager/descriptions.conf`.
 
 ## 🗑️ Удаление
 
+**Из меню** (пункт 9) — удаляет скрипт и файлы, правила UFW не трогает.
+
+**Или вручную:**
+
 ```bash
 sudo bash uninstall.sh
 ```
@@ -169,7 +201,7 @@ sudo bash uninstall.sh
 ```
 ufw-manager/             ← репозиторий
 ├── ufw-manager.sh       # Главный скрипт с меню
-├── install.sh           # Установщик
+├── install.sh           # Установщик (локальный и remote-режим)
 ├── uninstall.sh         # Удаление
 └── README.md            # Документация
 
