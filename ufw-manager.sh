@@ -21,14 +21,14 @@ NC='\033[0m'
 # ── Проверки ──────────────────────────────────────────────────────────────────
 check_root() {
     if [[ $EUID -ne 0 ]]; then
-        echo -e "${R}❌ Ошибка: запустите от имени root (sudo ufw)${NC}" >&2
+        echo -e "${R}Ошибка: запустите от имени root (sudo ufw)${NC}" >&2
         exit 1
     fi
 }
 
 check_ufw_installed() {
     if [[ ! -x "$UFW_BIN" ]]; then
-        echo -e "${R}❌ Ошибка: ufw не найден по пути $UFW_BIN${NC}" >&2
+        echo -e "${R}Ошибка: ufw не найден по пути $UFW_BIN${NC}" >&2
         echo -e "Установите командой: ${W}apt install ufw${NC}" >&2
         exit 1
     fi
@@ -101,29 +101,29 @@ header() {
     echo  "  ╚${border}╝"
     echo -e "${NC}"
     if is_active; then
-        echo -e "  Брандмауэр: ${G}🟢 Активен${NC}"
+        echo -e "  Брандмауэр: ${G}Активен${NC}"
     else
-        echo -e "  Брандмауэр: ${R}🔴 Отключён${NC}"
+        echo -e "  Брандмауэр: ${R}Отключён${NC}"
     fi
     echo ""
 }
 
 screen_status() {
     header
-    echo -e "  ${W}📊 Подробный статус UFW${NC}\n"
+    echo -e "  ${W}Подробный статус UFW${NC}\n"
     "$UFW_BIN" status verbose 2>&1 | sed 's/^/  /'
     pause
 }
 
 screen_rules() {
     header
-    echo -e "  ${W}📋 Список правил с описаниями${NC}\n"
+    echo -e "  ${W}Список правил с описаниями${NC}\n"
 
     local numbered
     numbered=$("$UFW_BIN" status numbered 2>&1)
 
     if echo "$numbered" | grep -q "Status: inactive"; then
-        echo -e "  ${Y}⚠️  UFW отключён — правила недоступны.${NC}"
+        echo -e "  ${Y}UFW отключён — правила недоступны.${NC}"
         pause
         return
     fi
@@ -154,7 +154,7 @@ screen_rules() {
             if [[ -n "$port" ]]; then
                 ip_binding=$(get_ip_binding "$port" "$proto")
                 if [[ -n "$ip_binding" && "$ip_binding" != "any" ]]; then
-                    echo -e "  ${D}    🔒 только с IP:${NC} ${B}${ip_binding}${NC}"
+                    echo -e "  ${D}    только с IP:${NC} ${B}${ip_binding}${NC}"
                 fi
             fi
         else
@@ -167,19 +167,19 @@ screen_rules() {
 
 screen_enable() {
     header
-    echo -e "  ${Y}⚡ Включаю UFW...${NC}\n"
+    echo -e "  ${Y}Включаю UFW...${NC}\n"
     echo "y" | "$UFW_BIN" enable 2>&1 | sed 's/^/  /'
-    echo -e "\n  ${G}✅ UFW успешно включён.${NC}"
+    echo -e "\n  ${G}UFW успешно включён.${NC}"
     pause
 }
 
 screen_disable() {
     header
-    echo -e "  ${Y}⚠️  Вы уверены, что хотите отключить брандмауэр? [y/N]${NC} "
+    echo -e "  ${Y}Вы уверены, что хотите отключить брандмауэр? [y/N]${NC} "
     read -rp "  " confirm
     if [[ "${confirm,,}" == "y" ]]; then
         "$UFW_BIN" disable 2>&1 | sed 's/^/  /'
-        echo -e "\n  ${G}✅ UFW отключён.${NC}"
+        echo -e "\n  ${G}UFW отключён.${NC}"
     else
         echo -e "\n  ${D}Отменено.${NC}"
     fi
@@ -188,13 +188,13 @@ screen_disable() {
 
 screen_add_port() {
     header
-    echo -e "  ${W}➕ Добавить правило для порта${NC}\n"
+    echo -e "  ${W}Добавить правило для порта${NC}\n"
 
     # ── Порт ──
     local port
     read -rp "  Номер порта (или диапазон, напр. 8000:9000): " port
     if [[ -z "$port" ]]; then
-        echo -e "\n  ${R}❌ Порт не может быть пустым.${NC}"
+        echo -e "\n  ${R}Порт не может быть пустым.${NC}"
         pause; return
     fi
 
@@ -225,7 +225,7 @@ screen_add_port() {
     description="${description:-Без описания}"
 
     echo ""
-    echo -e "  ${Y}⏳ Применяю правило...${NC}"
+    echo -e "  ${Y}Применяю правило...${NC}"
 
     local ufw_out ufw_exit
     ufw_exit=0
@@ -253,7 +253,7 @@ screen_add_port() {
         if [[ "$bind_ip" != "any" ]]; then
             save_ip_binding "$port" "$proto" "$bind_ip"
         fi
-        echo -e "\n  ${G}✅ Правило добавлено:${NC}"
+        echo -e "\n  ${G}Правило добавлено:${NC}"
         echo -e "    Порт      : ${W}${port}${NC} (${proto})"
         if [[ "$bind_ip" != "any" ]]; then
             echo -e "    IP-привязка: ${B}${bind_ip}${NC}"
@@ -261,7 +261,7 @@ screen_add_port() {
         echo -e "    Описание  : ${Y}${description}${NC}"
         echo -e "\n  ${D}Описание сохранено в UFW и видно в: sudo ufw status numbered${NC}"
     else
-        echo -e "\n  ${R}❌ Не удалось добавить правило. Проверьте введённые данные.${NC}"
+        echo -e "\n  ${R}Не удалось добавить правило. Проверьте введённые данные.${NC}"
     fi
 
     pause
@@ -269,7 +269,7 @@ screen_add_port() {
 
 screen_remove_port() {
     header
-    echo -e "  ${W}🗑️  Удалить правило${NC}\n"
+    echo -e "  ${W}Удалить правила${NC}\n"
 
     "$UFW_BIN" status numbered 2>&1 | sed 's/^/  /'
     echo ""
@@ -289,14 +289,14 @@ screen_remove_port() {
     for n in "${raw_nums[@]}"; do
         [[ -z "$n" ]] && continue
         if [[ ! "$n" =~ ^[0-9]+$ ]]; then
-            echo -e "  ${R}❌ «${n}» — не число, пропускаю.${NC}"
+            echo -e "  ${R}«${n}» — не число, пропускаю.${NC}"
             continue
         fi
         nums+=("$n")
     done
 
     if [[ ${#nums[@]} -eq 0 ]]; then
-        echo -e "\n  ${R}❌ Не указано ни одного корректного номера.${NC}"
+        echo -e "\n  ${R}Не указано ни одного корректного номера.${NC}"
         pause; return
     fi
 
@@ -319,10 +319,10 @@ screen_remove_port() {
 
         if [[ $del_exit -eq 0 ]]; then
             [[ -n "$port" ]] && remove_ip_binding "$port" "$proto"
-            echo -e "  ${G}✅ Правило #${rule_num} удалено.${NC}"
+            echo -e "  ${G}Правило #${rule_num} удалено.${NC}"
             (( ok++ ))
         else
-            echo -e "  ${R}❌ Правило #${rule_num}: не удалось удалить.${NC}"
+            echo -e "  ${R}Ошибка #${rule_num}: не удалось удалить.${NC}"
             (( fail++ ))
         fi
     done
@@ -341,22 +341,22 @@ screen_remove_port() {
 
 screen_reload() {
     header
-    echo -e "  ${Y}🔄 Перезагружаю UFW...${NC}\n"
+    echo -e "  ${Y}Перезагружаю UFW...${NC}\n"
     "$UFW_BIN" reload 2>&1 | sed 's/^/  /'
-    echo -e "\n  ${G}✅ Готово.${NC}"
+    echo -e "\n  ${G}Готово.${NC}"
     pause
 }
 
 screen_reset() {
     header
-    echo -e "  ${R}⚠️  ВНИМАНИЕ: Все правила UFW будут сброшены до заводских!${NC}"
+    echo -e "  ${R}ВНИМАНИЕ: Все правила UFW будут сброшены до заводских!${NC}"
     echo -e "  Введите ${W}СБРОС${NC} для подтверждения, или что-угодно для отмены:\n"
     local confirm
     read -rp "  " confirm
     if [[ "$confirm" == "СБРОС" ]]; then
         echo "y" | "$UFW_BIN" reset 2>&1 | sed 's/^/  /'
         > "$DESC_FILE"
-        echo -e "\n  ${G}✅ UFW сброшен до настроек по умолчанию.${NC}"
+        echo -e "\n  ${G}UFW сброшен до настроек по умолчанию.${NC}"
     else
         echo -e "\n  ${D}Отменено.${NC}"
     fi
@@ -365,7 +365,7 @@ screen_reset() {
 
 screen_uninstall() {
     header
-    echo -e "  ${R}⚠️  Удалить UFW Manager из системы?${NC}\n"
+    echo -e "  ${R}Удалить UFW Manager из системы?${NC}\n"
     echo -e "  Будет удалено:"
     echo -e "    ${D}•${NC} $INSTALL_BIN  (команда меню)"
     echo -e "    ${D}•${NC} $OPT_DIR      (файлы менеджера)\n"
@@ -376,7 +376,7 @@ screen_uninstall() {
     if [[ "$confirm" == "УДАЛИТЬ" ]]; then
         rm -f "$INSTALL_BIN"
         rm -rf "$OPT_DIR"
-        echo -e "\n  ${G}✅ UFW Manager удалён.${NC}"
+        echo -e "\n  ${G}UFW Manager удалён.${NC}"
         echo -e "  ${D}Используйте /usr/sbin/ufw для работы с брандмауэром напрямую.${NC}\n"
         exit 0
     else
@@ -389,18 +389,18 @@ screen_uninstall() {
 main_menu() {
     while true; do
         header
-        echo -e "  ${W}1)${NC} 📊 Статус брандмауэра"
-        echo -e "  ${W}2)${NC} 📋 Список правил с описаниями"
-        echo -e "  ${W}3)${NC} ✅ Включить UFW"
-        echo -e "  ${W}4)${NC} ⛔ Отключить UFW"
+        echo -e "  ${W}1)${NC} Статус брандмауэра"
+        echo -e "  ${W}2)${NC} Список правил с описаниями"
+        echo -e "  ${W}3)${NC} Включить UFW"
+        echo -e "  ${W}4)${NC} Отключить UFW"
         echo -e "  ─────────────────────────────────────"
-        echo -e "  ${W}5)${NC} ➕ Добавить правило (порт + описание + IP)"
-        echo -e "  ${W}6)${NC} 🗑️  Удалить правило"
-        echo -e "  ${W}7)${NC} 🔄 Перезагрузить UFW"
+        echo -e "  ${W}5)${NC} Добавить правило (порт + описание + IP)"
+        echo -e "  ${W}6)${NC} Удалить правила"
+        echo -e "  ${W}7)${NC} Перезагрузить UFW"
         echo -e "  ─────────────────────────────────────"
-        echo -e "  ${W}8)${NC} ${R}💣 Сбросить все правила${NC}"
-        echo -e "  ${W}9)${NC} ${R}🗑️  Удалить UFW Manager${NC}"
-        echo -e "  ${W}0)${NC} 🚪 Выход"
+        echo -e "  ${W}8)${NC} ${R}Сбросить все правила${NC}"
+        echo -e "  ${W}9)${NC} ${R}Удалить UFW Manager${NC}"
+        echo -e "  ${W}0)${NC} Выход"
         echo ""
         read -rp "  Выберите пункт: " choice
 
@@ -415,11 +415,11 @@ main_menu() {
             8) screen_reset ;;
             9) screen_uninstall ;;
             0)
-                echo -e "\n  ${G}👋 До свидания!${NC}\n"
+                echo -e "\n  ${G}До свидания!${NC}\n"
                 exit 0
                 ;;
             *)
-                echo -e "\n  ${R}❌ Неверный пункт меню.${NC}"
+                echo -e "\n  ${R}Неверный пункт меню.${NC}"
                 sleep 0.8
                 ;;
         esac
