@@ -1,12 +1,10 @@
 #!/bin/bash
-# UFW Manager — Installer
+# UFW Manager — Установщик
 
-set -euo pipefail
-
-INSTALL_PATH="/usr/local/bin/ufw"
+OPT_DIR="/opt/ufw-manager"
+INSTALL_BIN="/usr/local/bin/ufw"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_SRC="$SCRIPT_DIR/ufw-manager.sh"
-DATA_DIR="/etc/ufw-manager"
 
 R='\033[0;31m'
 G='\033[0;32m'
@@ -26,14 +24,22 @@ fi
 
 echo -e "${Y}⚙️  Устанавливаю UFW Manager...${NC}\n"
 
-# Создать директорию данных
-mkdir -p "$DATA_DIR"
-echo -e "  ${G}✅${NC} Создана директория: $DATA_DIR"
+# Создать директорию в /opt
+mkdir -p "$OPT_DIR"
+echo -e "  ${G}✅${NC} Создана директория: $OPT_DIR"
 
-# Установить скрипт
-cp "$SCRIPT_SRC" "$INSTALL_PATH"
-chmod +x "$INSTALL_PATH"
-echo -e "  ${G}✅${NC} Скрипт установлен в: $INSTALL_PATH"
+# Скопировать скрипт
+cp "$SCRIPT_SRC" "$OPT_DIR/ufw-manager.sh"
+chmod +x "$OPT_DIR/ufw-manager.sh"
+echo -e "  ${G}✅${NC} Скрипт скопирован в: $OPT_DIR/ufw-manager.sh"
+
+# Создать файл IP-привязок
+touch "$OPT_DIR/descriptions.conf"
+echo -e "  ${G}✅${NC} Создан файл метаданных: $OPT_DIR/descriptions.conf"
+
+# Создать символическую ссылку /usr/local/bin/ufw → наш скрипт
+ln -sf "$OPT_DIR/ufw-manager.sh" "$INSTALL_BIN"
+echo -e "  ${G}✅${NC} Ссылка создана: $INSTALL_BIN → $OPT_DIR/ufw-manager.sh"
 
 echo -e "\n${G}🎉 Установка завершена!${NC}"
 echo -e "Откройте меню командой: ${W}sudo ufw${NC}"
