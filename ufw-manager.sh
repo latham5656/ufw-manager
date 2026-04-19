@@ -11,7 +11,7 @@ PROFILES_DIR="$OPT_DIR/profiles"
 EXPORTS_DIR="$OPT_DIR/exports"
 UPDATE_CACHE="$OPT_DIR/.update_check"
 SCRIPT_REPO_URL="https://raw.githubusercontent.com/latham5656/ufw-manager/refs/heads/master/ufw-manager.sh"
-VERSION="3.3.1"
+VERSION="3.3.2"
 
 # ── Цвета ─────────────────────────────────────────────────────────────────────
 R='\033[0;31m'
