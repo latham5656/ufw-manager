@@ -11,7 +11,7 @@ PROFILES_DIR="$OPT_DIR/profiles"
 EXPORTS_DIR="$OPT_DIR/exports"
 UPDATE_CACHE="$OPT_DIR/.update_check"
 SCRIPT_REPO_URL="https://raw.githubusercontent.com/latham5656/ufw-manager/refs/heads/master/ufw-manager.sh"
-VERSION="3.0.0"
+VERSION="3.1.0"
 
 # ── Цвета ─────────────────────────────────────────────────────────────────────
 R='\033[0;31m'
@@ -47,6 +47,15 @@ init_opt_dir() {
 pause() {
     echo ""
     read -rp "  Нажмите Enter для продолжения..."
+}
+
+# Возвращает 1 если пользователь ввёл 0 (выход), иначе 0 (продолжить)
+nav_prompt() {
+    local msg="${1:-  [Enter] — повторить  [0] — главное меню: }"
+    echo ""
+    read -rp "$msg" _nav
+    [[ "$_nav" == "0" ]] && return 1
+    return 0
 }
 
 # ── Валидация ─────────────────────────────────────────────────────────────────
@@ -186,169 +195,180 @@ header() {
 
 # ── Статус ────────────────────────────────────────────────────────────────────
 screen_status() {
-    header
-    echo -e "  ${W}📊 Подробный статус UFW${NC}\n"
-    "$UFW_BIN" status verbose 2>&1 | sed 's/^/  /'
-    pause
+    while true; do
+        header
+        echo -e "  ${W}📊 Подробный статус UFW${NC}\n"
+        "$UFW_BIN" status verbose 2>&1 | sed 's/^/  /'
+        nav_prompt "  [Enter] — обновить  [0] — главное меню: " || return
+    done
 }
 
 # ── Список правил с поиском и подсветкой ─────────────────────────────────────
 screen_rules() {
-    header
-    echo -e "  ${W}📋 Список правил с описаниями${NC}\n"
+    while true; do
+        header
+        echo -e "  ${W}📋 Список правил с описаниями${NC}\n"
 
-    local numbered
-    numbered=$("$UFW_BIN" status numbered 2>&1)
+        local numbered
+        numbered=$("$UFW_BIN" status numbered 2>&1)
 
-    if echo "$numbered" | grep -q "Status: inactive"; then
-        echo -e "  ${Y}⚠️  UFW отключён — правила недоступны.${NC}"
-        pause; return
-    fi
-
-    read -rp "  Фильтр по порту/IP/описанию (Enter — все): " filter
-    echo ""
-
-    local found=0
-    while IFS= read -r line; do
-        [[ $line == *"(v6)"* ]] && continue
-
-        if [[ $line =~ ^\[([[:space:]]*[0-9]+)\] ]]; then
-            if [[ -n "$filter" ]] && ! echo "$line" | grep -qi "$filter"; then
-                continue
-            fi
-            found=1
-
-            if [[ $line == *'#'* ]]; then
-                local main_part="${line%%#*}"
-                local comment_part="${line#*#}"
-                echo -e "  ${W}${main_part}${NC}${Y}#${comment_part}${NC}"
-            elif [[ $line == *"DENY"* || $line == *"REJECT"* ]]; then
-                echo -e "  ${R}${line}${NC}"
-            elif [[ $line == *"ALLOW"* ]]; then
-                echo -e "  ${G}${line}${NC}"
-            else
-                echo -e "  ${W}${line}${NC}"
-            fi
-
-            local port proto
-            port=$(echo "$line" | grep -oP '\b\d{1,5}(?=/(?:tcp|udp))' 2>/dev/null | head -1) || port=""
-            proto=$(echo "$line" | grep -oP '(?<=\d/)(tcp|udp)' 2>/dev/null | head -1) || proto="any"
-            [[ -z "$proto" ]] && proto="any"
-
-            if [[ -n "$port" ]]; then
-                local ip_binding
-                ip_binding=$(get_ip_binding "$port" "$proto")
-                [[ -n "$ip_binding" && "$ip_binding" != "any" ]] && \
-                    echo -e "  ${D}    🔒 только с IP:${NC} ${B}${ip_binding}${NC}"
-            fi
-        else
-            [[ -z "$filter" ]] && echo "  $line"
+        if echo "$numbered" | grep -q "Status: inactive"; then
+            echo -e "  ${Y}⚠️  UFW отключён — правила недоступны.${NC}"
+            nav_prompt "  [Enter] — повторить  [0] — главное меню: " || return
+            continue
         fi
-    done <<< "$numbered"
 
-    [[ $found -eq 0 && -n "$filter" ]] && \
-        echo -e "  ${Y}Ничего не найдено по запросу «${filter}»${NC}"
+        local filter=""
+        read -rp "  Фильтр по порту/IP/описанию (Enter — все, 0 — назад): " filter
+        [[ "$filter" == "0" ]] && return
+        echo ""
 
-    pause
+        local found=0
+        while IFS= read -r line; do
+            [[ $line == *"(v6)"* ]] && continue
+
+            if [[ $line =~ ^\[([[:space:]]*[0-9]+)\] ]]; then
+                if [[ -n "$filter" ]] && ! echo "$line" | grep -qi "$filter"; then
+                    continue
+                fi
+                found=1
+
+                if [[ $line == *'#'* ]]; then
+                    local main_part="${line%%#*}"
+                    local comment_part="${line#*#}"
+                    echo -e "  ${W}${main_part}${NC}${Y}#${comment_part}${NC}"
+                elif [[ $line == *"DENY"* || $line == *"REJECT"* ]]; then
+                    echo -e "  ${R}${line}${NC}"
+                elif [[ $line == *"ALLOW"* ]]; then
+                    echo -e "  ${G}${line}${NC}"
+                else
+                    echo -e "  ${W}${line}${NC}"
+                fi
+
+                local port proto
+                port=$(echo "$line" | grep -oP '\b\d{1,5}(?=/(?:tcp|udp))' 2>/dev/null | head -1) || port=""
+                proto=$(echo "$line" | grep -oP '(?<=\d/)(tcp|udp)' 2>/dev/null | head -1) || proto="any"
+                [[ -z "$proto" ]] && proto="any"
+
+                if [[ -n "$port" ]]; then
+                    local ip_binding
+                    ip_binding=$(get_ip_binding "$port" "$proto")
+                    [[ -n "$ip_binding" && "$ip_binding" != "any" ]] && \
+                        echo -e "  ${D}    🔒 только с IP:${NC} ${B}${ip_binding}${NC}"
+                fi
+            else
+                [[ -z "$filter" ]] && echo "  $line"
+            fi
+        done <<< "$numbered"
+
+        [[ $found -eq 0 && -n "$filter" ]] && \
+            echo -e "  ${Y}Ничего не найдено по запросу «${filter}»${NC}"
+
+        nav_prompt "  [Enter] — новый поиск  [0] — главное меню: " || return
+    done
 }
 
 # ── Включить ──────────────────────────────────────────────────────────────────
 screen_enable() {
-    header
-    echo -e "  ${Y}⚡ Включаю UFW...${NC}\n"
-    echo "y" | "$UFW_BIN" enable 2>&1 | sed 's/^/  /'
-    echo -e "\n  ${G}✅ UFW успешно включён.${NC}"
-    pause
+    while true; do
+        header
+        echo -e "  ${Y}⚡ Включаю UFW...${NC}\n"
+        echo "y" | "$UFW_BIN" enable 2>&1 | sed 's/^/  /'
+        echo -e "\n  ${G}✅ UFW успешно включён.${NC}"
+        nav_prompt "  [Enter] — повторить  [0] — главное меню: " || return
+    done
 }
 
 # ── Отключить ─────────────────────────────────────────────────────────────────
 screen_disable() {
-    header
-    echo -e "  ${Y}⚠️  Вы уверены, что хотите отключить брандмауэр? [y/N]${NC} "
-    read -rp "  " confirm
-    if [[ "${confirm,,}" == "y" ]]; then
-        "$UFW_BIN" disable 2>&1 | sed 's/^/  /'
-        echo -e "\n  ${G}✅ UFW отключён.${NC}"
-    else
-        echo -e "\n  ${D}Отменено.${NC}"
-    fi
-    pause
+    while true; do
+        header
+        echo -e "  ${Y}⚠️  Вы уверены, что хотите отключить брандмауэр? [y/N/0]${NC} "
+        read -rp "  " confirm
+        [[ "$confirm" == "0" ]] && return
+        if [[ "${confirm,,}" == "y" ]]; then
+            "$UFW_BIN" disable 2>&1 | sed 's/^/  /'
+            echo -e "\n  ${G}✅ UFW отключён.${NC}"
+        else
+            echo -e "\n  ${D}Отменено.${NC}"
+        fi
+        nav_prompt "  [Enter] — повторить  [0] — главное меню: " || return
+    done
 }
 
 # ── Добавить правило ──────────────────────────────────────────────────────────
 screen_add_port() {
-    header
-    echo -e "  ${W}➕ Добавить правило для порта${NC}\n"
+    while true; do
+        header
+        echo -e "  ${W}➕ Добавить правило для порта${NC}\n"
 
-    local port
-    read -rp "  Номер порта (или диапазон, напр. 8000:9000): " port
-    if [[ -z "$port" ]]; then
-        echo -e "\n  ${R}❌ Порт не может быть пустым.${NC}"; pause; return
-    fi
-    if ! validate_port "$port"; then
-        echo -e "\n  ${R}❌ Некорректный порт «${port}». Укажите 1-65535 или диапазон 8000:9000.${NC}"
-        pause; return
-    fi
-
-    echo ""
-    echo -e "  Протокол:"
-    echo -e "    ${W}1)${NC} TCP"
-    echo -e "    ${W}2)${NC} UDP"
-    echo -e "    ${W}3)${NC} TCP + UDP ${D}(по умолчанию)${NC}"
-    local proto_choice proto
-    read -rp "  Выбор [1-3]: " proto_choice
-    case "$proto_choice" in
-        1) proto="tcp" ;;
-        2) proto="udp" ;;
-        *) proto="any" ;;
-    esac
-
-    echo ""
-    local bind_ip
-    read -rp "  Привязать к IP-адресу? (оставьте пустым — для всех): " bind_ip
-    if [[ -n "$bind_ip" ]] && ! validate_ip "$bind_ip"; then
-        echo -e "\n  ${R}❌ Некорректный IP-адрес «${bind_ip}»${NC}"; pause; return
-    fi
-    bind_ip="${bind_ip:-any}"
-
-    echo ""
-    local description
-    read -rp "  Описание (напр. 'Nginx HTTPS'): " description
-    description="${description:-Без описания}"
-
-    echo ""
-    echo -e "  ${Y}⏳ Применяю правило...${NC}"
-
-    local ufw_out ufw_exit=0
-
-    if [[ "$bind_ip" != "any" ]]; then
-        if [[ "$proto" == "any" ]]; then
-            ufw_out=$("$UFW_BIN" allow from "$bind_ip" to any port "$port" comment "$description" 2>&1) || ufw_exit=$?
-        else
-            ufw_out=$("$UFW_BIN" allow from "$bind_ip" to any port "$port" proto "$proto" comment "$description" 2>&1) || ufw_exit=$?
+        local port
+        read -rp "  Номер порта (0 — назад, или диапазон 8000:9000): " port
+        [[ "$port" == "0" || -z "$port" ]] && return
+        if ! validate_port "$port"; then
+            echo -e "\n  ${R}❌ Некорректный порт «${port}». Укажите 1-65535 или диапазон 8000:9000.${NC}"
+            sleep 1; continue
         fi
-    else
-        if [[ "$proto" == "any" ]]; then
-            ufw_out=$("$UFW_BIN" allow from 0.0.0.0/0 to any port "$port" comment "$description" 2>&1) || ufw_exit=$?
-        else
-            ufw_out=$("$UFW_BIN" allow from 0.0.0.0/0 to any port "$port" proto "$proto" comment "$description" 2>&1) || ufw_exit=$?
+
+        echo ""
+        echo -e "  Протокол:"
+        echo -e "    ${W}1)${NC} TCP"
+        echo -e "    ${W}2)${NC} UDP"
+        echo -e "    ${W}3)${NC} TCP + UDP ${D}(по умолчанию)${NC}"
+        local proto_choice proto
+        read -rp "  Выбор [1-3]: " proto_choice
+        case "$proto_choice" in
+            1) proto="tcp" ;;
+            2) proto="udp" ;;
+            *) proto="any" ;;
+        esac
+
+        echo ""
+        local bind_ip
+        read -rp "  Привязать к IP-адресу? (оставьте пустым — для всех): " bind_ip
+        if [[ -n "$bind_ip" ]] && ! validate_ip "$bind_ip"; then
+            echo -e "\n  ${R}❌ Некорректный IP-адрес «${bind_ip}»${NC}"; sleep 1; continue
         fi
-    fi
+        bind_ip="${bind_ip:-any}"
 
-    echo "$ufw_out" | sed 's/^/  /'
+        echo ""
+        local description
+        read -rp "  Описание (напр. 'Nginx HTTPS'): " description
+        description="${description:-Без описания}"
 
-    if [[ $ufw_exit -eq 0 ]]; then
-        [[ "$bind_ip" != "any" ]] && save_ip_binding "$port" "$proto" "$bind_ip"
-        echo -e "\n  ${G}✅ Правило добавлено:${NC}"
-        echo -e "    Порт      : ${W}${port}${NC} (${proto})"
-        [[ "$bind_ip" != "any" ]] && echo -e "    IP-привязка: ${B}${bind_ip}${NC}"
-        echo -e "    Описание  : ${Y}${description}${NC}"
-        echo -e "\n  ${D}Описание сохранено в UFW: sudo ufw status numbered${NC}"
-    else
-        echo -e "\n  ${R}❌ Не удалось добавить правило. Проверьте введённые данные.${NC}"
-    fi
+        echo ""
+        echo -e "  ${Y}⏳ Применяю правило...${NC}"
 
-    pause
+        local ufw_out ufw_exit=0
+
+        if [[ "$bind_ip" != "any" ]]; then
+            if [[ "$proto" == "any" ]]; then
+                ufw_out=$("$UFW_BIN" allow from "$bind_ip" to any port "$port" comment "$description" 2>&1) || ufw_exit=$?
+            else
+                ufw_out=$("$UFW_BIN" allow from "$bind_ip" to any port "$port" proto "$proto" comment "$description" 2>&1) || ufw_exit=$?
+            fi
+        else
+            if [[ "$proto" == "any" ]]; then
+                ufw_out=$("$UFW_BIN" allow from 0.0.0.0/0 to any port "$port" comment "$description" 2>&1) || ufw_exit=$?
+            else
+                ufw_out=$("$UFW_BIN" allow from 0.0.0.0/0 to any port "$port" proto "$proto" comment "$description" 2>&1) || ufw_exit=$?
+            fi
+        fi
+
+        echo "$ufw_out" | sed 's/^/  /'
+
+        if [[ $ufw_exit -eq 0 ]]; then
+            [[ "$bind_ip" != "any" ]] && save_ip_binding "$port" "$proto" "$bind_ip"
+            echo -e "\n  ${G}✅ Правило добавлено:${NC}"
+            echo -e "    Порт      : ${W}${port}${NC} (${proto})"
+            [[ "$bind_ip" != "any" ]] && echo -e "    IP-привязка: ${B}${bind_ip}${NC}"
+            echo -e "    Описание  : ${Y}${description}${NC}"
+        else
+            echo -e "\n  ${R}❌ Не удалось добавить правило. Проверьте введённые данные.${NC}"
+        fi
+
+        nav_prompt "  [Enter] — добавить ещё  [0] — главное меню: " || return
+    done
 }
 
 # ── Блокировка IP ─────────────────────────────────────────────────────────────
@@ -433,77 +453,80 @@ screen_block_ip() {
 
 # ── Удалить правила ───────────────────────────────────────────────────────────
 screen_remove_port() {
-    header
-    echo -e "  ${W}🗑️  Удалить правило${NC}\n"
+    while true; do
+        header
+        echo -e "  ${W}🗑️  Удалить правило${NC}\n"
 
-    "$UFW_BIN" status numbered 2>&1 | sed 's/^/  /'
-    echo ""
+        "$UFW_BIN" status numbered 2>&1 | sed 's/^/  /'
+        echo ""
 
-    local input
-    read -rp "  Номера правил через пробел или запятую (или 'q'): " input
-    if [[ "${input,,}" == "q" || -z "$input" ]]; then return; fi
+        local input
+        read -rp "  Номера правил через пробел или запятую (0 — назад): " input
+        [[ "$input" == "0" || -z "$input" ]] && return
 
-    local raw_nums
-    IFS=', ' read -ra raw_nums <<< "$input"
+        local raw_nums
+        IFS=', ' read -ra raw_nums <<< "$input"
 
-    local nums=()
-    for n in "${raw_nums[@]}"; do
-        [[ -z "$n" ]] && continue
-        if [[ ! "$n" =~ ^[0-9]+$ ]]; then
-            echo -e "  ${R}❌ «${n}» — не число, пропускаю.${NC}"; continue
+        local nums=()
+        for n in "${raw_nums[@]}"; do
+            [[ -z "$n" ]] && continue
+            if [[ ! "$n" =~ ^[0-9]+$ ]]; then
+                echo -e "  ${R}❌ «${n}» — не число, пропускаю.${NC}"; continue
+            fi
+            nums+=("$n")
+        done
+
+        if [[ ${#nums[@]} -eq 0 ]]; then
+            echo -e "\n  ${R}❌ Не указано ни одного корректного номера.${NC}"; sleep 1; continue
         fi
-        nums+=("$n")
-    done
 
-    if [[ ${#nums[@]} -eq 0 ]]; then
-        echo -e "\n  ${R}❌ Не указано ни одного корректного номера.${NC}"; pause; return
-    fi
+        IFS=$'\n' nums=($(printf '%s\n' "${nums[@]}" | sort -rnu))
+        unset IFS
 
-    IFS=$'\n' nums=($(printf '%s\n' "${nums[@]}" | sort -rnu))
-    unset IFS
+        echo ""
+        local ok=0 fail=0
 
-    echo ""
-    local ok=0 fail=0
+        for rule_num in "${nums[@]}"; do
+            local rule_line
+            rule_line=$("$UFW_BIN" status numbered 2>/dev/null | grep -P "^\[ *${rule_num}\]") || rule_line=""
+            local port proto
+            port=$(echo "$rule_line" | grep -oP '\b\d{1,5}(?=/(?:tcp|udp))' 2>/dev/null | head -1) || port=""
+            proto=$(echo "$rule_line" | grep -oP '(?<=\d/)(tcp|udp)' 2>/dev/null | head -1) || proto=""
 
-    for rule_num in "${nums[@]}"; do
-        local rule_line
-        rule_line=$("$UFW_BIN" status numbered 2>/dev/null | grep -P "^\[ *${rule_num}\]") || rule_line=""
-        local port proto
-        port=$(echo "$rule_line" | grep -oP '\b\d{1,5}(?=/(?:tcp|udp))' 2>/dev/null | head -1) || port=""
-        proto=$(echo "$rule_line" | grep -oP '(?<=\d/)(tcp|udp)' 2>/dev/null | head -1) || proto=""
+            local del_exit=0
+            echo "y" | "$UFW_BIN" delete "$rule_num" &>/dev/null || del_exit=$?
 
-        local del_exit=0
-        echo "y" | "$UFW_BIN" delete "$rule_num" &>/dev/null || del_exit=$?
+            if [[ $del_exit -eq 0 ]]; then
+                [[ -n "$port" ]] && remove_ip_binding "$port" "$proto"
+                echo -e "  ${G}✅ Правило #${rule_num} удалено.${NC}"
+                (( ok++ ))
+            else
+                echo -e "  ${R}❌ Правило #${rule_num}: не удалось удалить.${NC}"
+                (( fail++ ))
+            fi
+        done
 
-        if [[ $del_exit -eq 0 ]]; then
-            [[ -n "$port" ]] && remove_ip_binding "$port" "$proto"
-            echo -e "  ${G}✅ Правило #${rule_num} удалено.${NC}"
-            (( ok++ ))
+        echo ""
+        if [[ $ok -gt 0 && $fail -eq 0 ]]; then
+            echo -e "  ${G}Итого удалено: ${ok}.${NC}"
+        elif [[ $ok -gt 0 ]]; then
+            echo -e "  ${Y}Удалено: ${ok}, ошибок: ${fail}.${NC}"
         else
-            echo -e "  ${R}❌ Правило #${rule_num}: не удалось удалить.${NC}"
-            (( fail++ ))
+            echo -e "  ${R}Не удалось удалить ни одного правила.${NC}"
         fi
+        # После удаления петля возвращается вверх — показывает обновлённый список
     done
-
-    echo ""
-    if [[ $ok -gt 0 && $fail -eq 0 ]]; then
-        echo -e "  ${G}Итого удалено: ${ok}.${NC}"
-    elif [[ $ok -gt 0 ]]; then
-        echo -e "  ${Y}Удалено: ${ok}, ошибок: ${fail}.${NC}"
-    else
-        echo -e "  ${R}Не удалось удалить ни одного правила.${NC}"
-    fi
-
-    pause
 }
 
 # ── Перезагрузить ─────────────────────────────────────────────────────────────
 screen_reload() {
-    header
-    echo -e "  ${Y}🔄 Перезагружаю UFW...${NC}\n"
-    "$UFW_BIN" reload 2>&1 | sed 's/^/  /'
-    echo -e "\n  ${G}✅ Готово.${NC}"
-    pause
+    while true; do
+        header
+        echo -e "  ${Y}🔄 Перезагружаю UFW...${NC}\n"
+        "$UFW_BIN" reload 2>&1 | sed 's/^/  /'
+        echo -e "\n  ${G}✅ Готово.${NC}"
+        nav_prompt "  [Enter] — перезагрузить ещё раз  [0] — главное меню: " || return
+    done
 }
 
 # ── Профили правил ────────────────────────────────────────────────────────────
@@ -714,23 +737,7 @@ screen_export_import() {
 
 # ── Лог брандмауэра ───────────────────────────────────────────────────────────
 screen_log() {
-    header
-    echo -e "  ${W}📜 Лог брандмауэра${NC}\n"
-
     local log_file="/var/log/ufw.log"
-
-    if [[ ! -f "$log_file" ]]; then
-        echo -e "  ${Y}⚠️  Файл лога не найден: ${log_file}${NC}"
-        echo -e "  ${D}Включите логирование: sudo ufw logging on${NC}"
-        pause; return
-    fi
-
-    echo -e "  ${W}1)${NC} Последние 50 записей"
-    echo -e "  ${W}2)${NC} Только заблокированные ${D}(BLOCK)${NC}"
-    echo -e "  ${W}3)${NC} Поиск по IP"
-    echo -e "  ${W}4)${NC} Живой режим ${D}(Ctrl+C для выхода)${NC}"
-    echo ""
-    read -rp "  Выбор: " log_choice
 
     colorize_log() {
         while IFS= read -r line; do
@@ -744,45 +751,70 @@ screen_log() {
         done
     }
 
-    echo ""
-    case "$log_choice" in
-        1) tail -50 "$log_file" | colorize_log ;;
-        2) grep "BLOCK" "$log_file" | tail -50 | colorize_log ;;
-        3)
-            local search_ip
-            read -rp "  IP для поиска: " search_ip
-            echo ""
-            grep "$search_ip" "$log_file" | tail -50 | colorize_log
-            ;;
-        4)
-            echo -e "  ${D}Нажмите Ctrl+C для выхода...${NC}\n"
-            trap 'echo ""; return' INT
-            tail -f "$log_file" | colorize_log
-            trap - INT
-            return
-            ;;
-        *) echo -e "  ${R}❌ Неверный выбор.${NC}" ;;
-    esac
+    while true; do
+        header
+        echo -e "  ${W}📜 Лог брандмауэра${NC}\n"
 
-    pause
+        if [[ ! -f "$log_file" ]]; then
+            echo -e "  ${Y}⚠️  Файл лога не найден: ${log_file}${NC}"
+            echo -e "  ${D}Включите логирование: sudo ufw logging on${NC}"
+            nav_prompt "  [Enter] — повторить  [0] — главное меню: " || return
+            continue
+        fi
+
+        echo -e "  ${W}1)${NC} Последние 50 записей"
+        echo -e "  ${W}2)${NC} Только заблокированные ${D}(BLOCK)${NC}"
+        echo -e "  ${W}3)${NC} Поиск по IP"
+        echo -e "  ${W}4)${NC} Живой режим ${D}(Ctrl+C для выхода)${NC}"
+        echo -e "  ${W}0)${NC} Главное меню"
+        echo ""
+        read -rp "  Выбор: " log_choice
+
+        echo ""
+        case "$log_choice" in
+            1) tail -50 "$log_file" | colorize_log ;;
+            2) grep "BLOCK" "$log_file" | tail -50 | colorize_log ;;
+            3)
+                local search_ip
+                read -rp "  IP для поиска: " search_ip
+                echo ""
+                grep "$search_ip" "$log_file" | tail -50 | colorize_log
+                ;;
+            4)
+                echo -e "  ${D}Нажмите Ctrl+C для выхода...${NC}\n"
+                trap 'echo ""' INT
+                tail -f "$log_file" | colorize_log
+                trap - INT
+                continue
+                ;;
+            0|"") return ;;
+            *) echo -e "  ${R}❌ Неверный выбор.${NC}"; sleep 0.5; continue ;;
+        esac
+
+        nav_prompt "  [Enter] — снова  [0] — главное меню: " || return
+    done
 }
 
 # ── Сброс ─────────────────────────────────────────────────────────────────────
 screen_reset() {
-    header
-    echo -e "  ${R}⚠️  ВНИМАНИЕ: Все правила UFW будут сброшены до заводских!${NC}"
-    echo -e "  Введите ${W}СБРОС${NC} для подтверждения:\n"
-    local confirm
-    read -rp "  " confirm
-    if [[ "$confirm" == "СБРОС" ]]; then
-        echo "y" | "$UFW_BIN" reset 2>&1 | sed 's/^/  /'
-        > "$DESC_FILE"
-        > "$BLOCKED_FILE"
-        echo -e "\n  ${G}✅ UFW сброшен до настроек по умолчанию.${NC}"
-    else
-        echo -e "\n  ${D}Отменено.${NC}"
-    fi
-    pause
+    while true; do
+        header
+        echo -e "  ${R}⚠️  ВНИМАНИЕ: Все правила UFW будут сброшены до заводских!${NC}"
+        echo -e "  Введите ${W}СБРОС${NC} для подтверждения, ${W}0${NC} — отмена:\n"
+        local confirm
+        read -rp "  " confirm
+        [[ "$confirm" == "0" ]] && return
+        if [[ "$confirm" == "СБРОС" ]]; then
+            echo "y" | "$UFW_BIN" reset 2>&1 | sed 's/^/  /'
+            > "$DESC_FILE"
+            > "$BLOCKED_FILE"
+            echo -e "\n  ${G}✅ UFW сброшен до настроек по умолчанию.${NC}"
+            nav_prompt "  [Enter] — сбросить ещё раз  [0] — главное меню: " || return
+        else
+            echo -e "\n  ${D}Отменено.${NC}"
+            nav_prompt "  [Enter] — повторить  [0] — главное меню: " || return
+        fi
+    done
 }
 
 # ── Удалить менеджер ──────────────────────────────────────────────────────────
